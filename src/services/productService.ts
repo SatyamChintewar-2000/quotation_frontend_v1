@@ -1,0 +1,60 @@
+import api from './api';
+
+export interface Product {
+  id: number;
+  productName: string;
+  description: string;
+  price: number;
+  unit: string;
+  quantity: number;
+  discountPercentage: number;
+  taxType: string;
+  taxPercentage: number;
+  expiryDate: string;
+  imagePath?: string;
+  companyId?: number;
+  companyName?: string;
+  createdBy?: number;
+  createdByName?: string;
+  createdAt?: string;
+  active?: boolean;
+}
+
+export interface ProductRequest {
+  productName: string;
+  description?: string;
+  price: number;
+  unit?: string;
+  quantity: number;
+  discountPercentage?: number;
+  taxType?: string;
+  taxPercentage?: number;
+  expiryDate?: string;
+  imagePath?: string;
+}
+
+export const productService = {
+  async getAll(): Promise<Product[]> {
+    const response = await api.get('/api/products');
+    return response.data;
+  },
+
+  async getById(id: number): Promise<Product> {
+    const response = await api.get(`/api/products/${id}`);
+    return response.data;
+  },
+
+  async create(product: ProductRequest): Promise<Product> {
+    const response = await api.post('/api/products', product);
+    return response.data;
+  },
+
+  async update(id: number, product: ProductRequest): Promise<Product> {
+    const response = await api.put(`/api/products/${id}`, product);
+    return response.data;
+  },
+
+  async delete(id: number): Promise<void> {
+    await api.delete(`/api/products/${id}`);
+  },
+};
