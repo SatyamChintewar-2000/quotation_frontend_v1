@@ -17,29 +17,29 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
   label = 'Date Range'
 }) => {
   return (
-    <div className="flex items-center gap-4">
-      <div className="flex items-center gap-2 text-muted-foreground">
+    <div className="flex items-center gap-3 flex-nowrap">
+      <div className="flex items-center gap-2 text-white">
         <Calendar size={20} />
         <span className="font-medium">{label}:</span>
       </div>
       <div className="flex items-center gap-2">
         <div>
-          <label className="text-xs text-muted-foreground block mb-1">From</label>
-          <input
+          <label className="text-xs text-white/70 block mb-1">From</label>
+          <input 
             type="date"
             value={fromDate}
             onChange={(e) => onFromDateChange(e.target.value)}
-            className="input-field text-sm py-1.5"
+            className="bg-white/20 border border-white/30 text-white rounded-lg px-2 py-1.5 text-sm"
           />
         </div>
-        <span className="text-muted-foreground mt-5">to</span>
+        <span className="text-white/70 mb-2">-</span>
         <div>
-          <label className="text-xs text-muted-foreground block mb-1">To</label>
+          <label className="text-xs text-white/70 block mb-1">To</label>
           <input
             type="date"
             value={toDate}
             onChange={(e) => onToDateChange(e.target.value)}
-            className="input-field text-sm py-1.5"
+            className="bg-white/20 border border-white/30 text-white rounded-lg px-2 py-1.5 text-sm"
           />
         </div>
       </div>

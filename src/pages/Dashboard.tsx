@@ -31,13 +31,13 @@ const Dashboard = () => {
       try {
         setIsLoading(true);
         setError(null);
-        
+
         // Set default date range to current date
         const today = new Date();
         const todayString = today.toISOString().split('T')[0];
         setFromDate(todayString);
         setToDate(todayString);
-        
+
         const [dashboard, customers] = await Promise.all([
           dashboardService.getDashboard(),
           customerService.getAll(),
@@ -60,46 +60,46 @@ const Dashboard = () => {
 
   // Filter data based on user role
   const isSuperAdmin = user?.role === 'superadmin';
-  
-  const userQuotations = isSuperAdmin 
-    ? quotations 
+
+  const userQuotations = isSuperAdmin
+    ? quotations
     : quotations.filter(q => q.createdBy === user?.id);
 
   // Filter quotations by date range
   const filteredQuotations = userQuotations.filter((quotation) => {
     if (!fromDate && !toDate) return true;
-    
+
     // Parse quotation date and strip time component
     const quotationDate = new Date(quotation.createdAt);
     quotationDate.setHours(0, 0, 0, 0);
-    
+
     // Parse filter dates and strip time component
     const from = fromDate ? new Date(fromDate) : null;
     if (from) from.setHours(0, 0, 0, 0);
-    
+
     const to = toDate ? new Date(toDate) : null;
     if (to) to.setHours(23, 59, 59, 999); // End of day
-    
+
     // Compare dates
     if (from && quotationDate < from) return false;
     if (to && quotationDate > to) return false;
-    
+
     return true;
   });
 
   // Calculate filtered revenue
   const filteredRevenue = filteredQuotations
-    .filter(q => q.status === 'accepted')
+    .filter(q => q.status === 'approved')
     .reduce((sum, q) => sum + q.grandTotal, 0);
 
   // Calculate today's metrics
   const todayQuotations = filteredQuotations.length;
   const todayRevenue = filteredRevenue;
-  
+
   // Determine label based on date filter
   const isToday = fromDate === toDate && fromDate === new Date().toISOString().split('T')[0];
   const dateLabel = isToday ? "Today's" : "Filtered";
-  
+
   const stats = [
     {
       label: `${dateLabel} Sales`,
@@ -161,22 +161,21 @@ const Dashboard = () => {
   return (
     <div className="min-h-screen">
       <TopBar title="Dashboard" />
-
       <div className="p-6 space-y-6">
         {/* Welcome Section */}
         <div className="bg-gradient-to-r from-primary to-primary/80 rounded-2xl p-6 text-primary-foreground shadow-lg">
-          <div className="flex items-center justify-between flex-wrap gap-4">
+          <div className="flex items-center justify-between gap-4">
             <div>
               <h2 className="text-2xl font-bold mb-2">
                 Welcome back, {user?.name}! 👋
               </h2>
               <p className="text-primary-foreground/80">
-                {isSuperAdmin 
+                {isSuperAdmin
                   ? "Here's today's business summary."
                   : "Here's your today's business overview."}
               </p>
             </div>
-            <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3">
+            <div className="flex items-center">
               <DateRangePicker
                 fromDate={fromDate}
                 toDate={toDate}
@@ -201,9 +200,8 @@ const Dashboard = () => {
                   <stat.icon size={24} />
                 </div>
                 <div
-                  className={`flex items-center gap-1 text-sm font-medium ${
-                    stat.positive ? 'text-success' : 'text-destructive'
-                  }`}
+                  className={`flex items-center gap-1 text-sm font-medium ${stat.positive ? 'text-success' : 'text-destructive'
+                    }`}
                 >
                   {stat.positive ? (
                     <ArrowUpRight size={16} />
@@ -264,7 +262,7 @@ const Dashboard = () => {
                       <td className="px-6 py-4">
                         <span
                           className={
-                            quotation.status === 'accepted'
+                            quotation.status === 'approved'
                               ? 'badge-success'
                               : 'badge-warning'
                           }

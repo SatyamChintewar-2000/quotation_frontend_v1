@@ -171,6 +171,7 @@ const UserManagement = () => {
     return role?.roleName || '';
   };
 
+  const isSuperAdmin = currentUser?.role === 'superadmin';
   const isCreatingClient = !editingUser && getSelectedRoleName() === 'CLIENT';
   // SUPER_ADMIN creating STAFF also needs company selection
   const isCreatingStaff = !editingUser && getSelectedRoleName() === 'STAFF';
@@ -191,8 +192,6 @@ const UserManagement = () => {
   const filteredUsers = selectedCompanyId
     ? users.filter(u => u.companyId === selectedCompanyId)
     : users;
-
-  const isSuperAdmin = currentUser?.role === 'superadmin';
 
   if (loading) {
     return (
