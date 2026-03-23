@@ -11,6 +11,10 @@ import { ExportButton } from '@/components/common/ExportButton';
 import { exportToExcel, formatDateForExcel, formatCurrencyForExcel } from '@/utils/excelExport';
 import { History, Eye, Download, Edit, Trash2, X, Save } from 'lucide-react';
 import api from '@/services/api';
+import { SearchBar } from '@/components/common/SearchBar';
+import { Pagination } from '@/components/common/Pagination';
+
+const ITEMS_PER_PAGE = 10;
 
 const QuotationHistory = () => {
   const { user } = useAuth();
@@ -20,6 +24,8 @@ const QuotationHistory = () => {
   const [selectedNewStatus, setSelectedNewStatus] = useState<string>('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
 
   // Fetch notification settings on mount
@@ -63,27 +69,36 @@ const QuotationHistory = () => {
     ? quotations
     : quotations.filter((q) => q.createdBy === user?.id);
 
-  // Filter by date range
+  // Filter by date range + search
   const filteredQuotations = userQuotations.filter((quotation) => {
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      const matchesSearch =
+        quotation.id.toString().toLowerCase().includes(term) ||
+        quotation.clientName.toLowerCase().includes(term) ||
+        quotation.status.toLowerCase().includes(term);
+      if (!matchesSearch) return false;
+    }
     if (!fromDate && !toDate) return true;
-    
-    // Parse quotation date and strip time component
     const quotationDate = new Date(quotation.createdAt);
     quotationDate.setHours(0, 0, 0, 0);
-    
-    // Parse filter dates and strip time component
     const from = fromDate ? new Date(fromDate) : null;
     if (from) from.setHours(0, 0, 0, 0);
-    
     const to = toDate ? new Date(toDate) : null;
-    if (to) to.setHours(23, 59, 59, 999); // End of day
-    
-    // Compare dates
+    if (to) to.setHours(23, 59, 59, 999);
     if (from && quotationDate < from) return false;
     if (to && quotationDate > to) return false;
-    
     return true;
   });
+
+  // Pagination
+  const totalPages = Math.ceil(filteredQuotations.length / ITEMS_PER_PAGE);
+  const paginatedQuotations = filteredQuotations.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  );
+
+  React.useEffect(() => { setCurrentPage(1); }, [searchTerm, fromDate, toDate]);
 
   // Export quotations to Excel
   const handleExportToExcel = () => {
@@ -258,6 +273,12 @@ const QuotationHistory = () => {
           </div>
           
           <div className="flex items-center gap-4 flex-wrap">
+            <SearchBar
+              value={searchTerm}
+              onChange={setSearchTerm}
+              placeholder="Search quotations..."
+              className="w-64"
+            />
             <DateRangePicker
               fromDate={fromDate}
               toDate={toDate}
@@ -296,7 +317,7 @@ const QuotationHistory = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredQuotations.map((quotation) => (
+                  {paginatedQuotations.map((quotation) => (
                     <tr key={quotation.id} className="table-row">
                       <td className="px-6 py-4 font-medium text-foreground">
                         {quotation.id}
@@ -363,6 +384,13 @@ const QuotationHistory = () => {
                 </tbody>
               </table>
             </div>
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalItems={filteredQuotations.length}
+              itemsPerPage={ITEMS_PER_PAGE}
+              onPageChange={setCurrentPage}
+            />
           )}
         </div>
       </div>

@@ -4,7 +4,11 @@ import { Users, Plus, Edit, Trash2, Mail, Phone, MapPin, Building2 } from 'lucid
 import { customerService, Customer, CustomerRequest } from '@/services/customerService';
 import { toast } from 'sonner';
 import { ExportButton } from '@/components/common/ExportButton';
+import { SearchBar } from '@/components/common/SearchBar';
+import { Pagination } from '@/components/common/Pagination';
 import { exportToExcel } from '@/utils/excelExport';
+
+const ITEMS_PER_PAGE = 9; // 3x3 grid
 
 const CustomerManagement = () => {
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -18,6 +22,22 @@ const CustomerManagement = () => {
     address: '',
   });
   const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+
+  const filteredCustomers = customers.filter((c) =>
+    c.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    c.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    c.phone.includes(searchTerm)
+  );
+
+  const totalPages = Math.ceil(filteredCustomers.length / ITEMS_PER_PAGE);
+  const paginatedCustomers = filteredCustomers.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  );
+
+  React.useEffect(() => { setCurrentPage(1); }, [searchTerm]);
 
   useEffect(() => {
     fetchCustomers();
@@ -168,6 +188,12 @@ const CustomerManagement = () => {
             <p className="text-muted-foreground">Manage visiting customers and their information</p>
           </div>
           <div className="flex items-center gap-4">
+            <SearchBar
+              value={searchTerm}
+              onChange={setSearchTerm}
+              placeholder="Search customers..."
+              className="w-64"
+            />
             <ExportButton
               onClick={handleExportToExcel}
               disabled={customers.length === 0}
@@ -184,17 +210,15 @@ const CustomerManagement = () => {
         </div>
 
         {/* Customers Grid */}
-        {customers.length === 0 ? (
+        {filteredCustomers.length === 0 ? (
           <div className="bg-card rounded-xl shadow-md border border-border p-12 text-center">
             <Users size={48} className="mx-auto text-muted-foreground/30 mb-4" />
-            <p className="text-muted-foreground">No customers yet</p>
-            <p className="text-sm text-muted-foreground mt-1">
-              Add your first customer to get started
-            </p>
+            <p className="text-muted-foreground">{searchTerm ? 'No customers match your search' : 'No customers yet'}</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {customers.map((customer, index) => (
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {paginatedCustomers.map((customer, index) => (
               <div
                 key={customer.id}
                 className="bg-card rounded-xl shadow-md border border-border p-6 hover:shadow-lg transition-all duration-300 animate-slide-in-up"
@@ -262,8 +286,16 @@ const CustomerManagement = () => {
                   </button>
                 </div>
               </div>
-            ))}
-          </div>
+              ))}
+            </div>
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalItems={filteredCustomers.length}
+              itemsPerPage={ITEMS_PER_PAGE}
+              onPageChange={setCurrentPage}
+            />
+          </>
         )}
       </div>
 

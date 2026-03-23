@@ -4,6 +4,10 @@ import { Plus, Edit, Trash2, Building2, Mail, Phone, MapPin } from 'lucide-react
 import { companyService, Company } from '@/services/companyService';
 import { toast } from 'sonner';
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PHONE_REGEX = /^[6-9][0-9]{9}$/;
+const GST_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
+
 interface CompanyFormData {
   companyName: string;
   address: string;
@@ -12,11 +16,20 @@ interface CompanyFormData {
   gstNumber: string;
 }
 
+interface FormErrors {
+  companyName?: string;
+  email?: string;
+  phone?: string;
+  gstNumber?: string;
+}
+
 const CompanyManagement = () => {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingCompany, setEditingCompany] = useState<Company | null>(null);
+  const [deletingCompany, setDeletingCompany] = useState<Company | null>(null);
+  const [formErrors, setFormErrors] = useState<FormErrors>({});
   const [formData, setFormData] = useState<CompanyFormData>({
     companyName: '',
     address: '',
@@ -42,8 +55,33 @@ const CompanyManagement = () => {
     }
   };
 
+  const validate = (): boolean => {
+    const errors: FormErrors = {};
+    if (!formData.companyName.trim()) errors.companyName = 'Company name is required';
+    if (formData.email && !EMAIL_REGEX.test(formData.email)) errors.email = 'Enter a valid email address';
+    if (formData.phone && formData.phone.length > 0 && formData.phone.length < 10) errors.phone = 'Phone number must be 10 digits';
+    if (formData.phone && formData.phone.length === 10 && !PHONE_REGEX.test(formData.phone)) errors.phone = 'Must start with 6, 7, 8 or 9';
+    if (formData.gstNumber && formData.gstNumber.length === 15 && !GST_REGEX.test(formData.gstNumber.toUpperCase())) {
+      errors.gstNumber = 'Invalid GST format (e.g. 22AAAAA0000A1Z5)';
+    }
+    setFormErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      toast.error(Object.values(errors)[0]);
+    }
+    return Object.keys(errors).length === 0;
+  };
+
+  const isFormValid = (): boolean => {
+    if (!formData.companyName.trim()) return false;
+    if (formData.email && !EMAIL_REGEX.test(formData.email)) return false;
+    if (formData.phone && formData.phone.length === 10 && !PHONE_REGEX.test(formData.phone)) return false;
+    if (formData.gstNumber && formData.gstNumber.length === 15 && !GST_REGEX.test(formData.gstNumber.toUpperCase())) return false;
+    return true;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!validate()) return;
     try {
       if (editingCompany) {
         await companyService.update(editingCompany.id, formData);
@@ -61,16 +99,21 @@ const CompanyManagement = () => {
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm('Are you sure you want to delete this company? This will affect all users associated with it.')) return;
-    
+  const handleDelete = async (company: Company) => {
+    setDeletingCompany(company);
+  };
+
+  const confirmDelete = async () => {
+    if (!deletingCompany) return;
     try {
-      await companyService.delete(id);
+      await companyService.delete(deletingCompany.id);
       toast.success('Company deleted successfully');
+      setDeletingCompany(null);
       fetchCompanies();
     } catch (error) {
       console.error('Failed to delete company:', error);
       toast.error('Failed to delete company');
+      setDeletingCompany(null);
     }
   };
 
@@ -88,13 +131,8 @@ const CompanyManagement = () => {
 
   const resetForm = () => {
     setEditingCompany(null);
-    setFormData({
-      companyName: '',
-      address: '',
-      phone: '',
-      email: '',
-      gstNumber: '',
-    });
+    setFormData({ companyName: '', address: '', phone: '', email: '', gstNumber: '' });
+    setFormErrors({});
   };
 
   const handleCloseModal = () => {
@@ -194,7 +232,7 @@ const CompanyManagement = () => {
                   Edit
                 </button>
                 <button
-                  onClick={() => handleDelete(company.id)}
+                  onClick={() => handleDelete(company)}
                   className="p-2 rounded-lg text-destructive hover:bg-destructive/10 transition-colors"
                   title="Delete"
                 >
@@ -225,49 +263,64 @@ const CompanyManagement = () => {
             
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
-                  Company Name *
-                </label>
+                <label className="block text-sm font-medium text-foreground mb-2">Company Name *</label>
                 <input
                   type="text"
                   value={formData.companyName}
-                  onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
-                  className="input-field"
-                  required
+                  onChange={(e) => { setFormData({ ...formData, companyName: e.target.value }); setFormErrors(p => ({ ...p, companyName: '' })); }}
+                  className={`input-field ${formErrors.companyName ? 'border-destructive' : ''}`}
                   placeholder="e.g., ABC Technologies Pvt Ltd"
                 />
+                {formErrors.companyName && <p className="text-xs text-destructive mt-1">{formErrors.companyName}</p>}
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
-                  Email
-                </label>
+                <label className="block text-sm font-medium text-foreground mb-2">Email</label>
                 <input
-                  type="email"
+                  type="text"
                   value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="input-field"
+                  onChange={(e) => { 
+                    setFormData({ ...formData, email: e.target.value }); 
+                    if (e.target.value && !EMAIL_REGEX.test(e.target.value)) {
+                      setFormErrors(p => ({ ...p, email: 'Enter a valid email address' }));
+                    } else {
+                      setFormErrors(p => ({ ...p, email: '' }));
+                    }
+                  }}
+                  className={`input-field ${formErrors.email ? 'border-destructive' : ''}`}
                   placeholder="company@example.com"
                 />
+                {formErrors.email && <p className="text-xs text-destructive mt-1">{formErrors.email}</p>}
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
-                  Phone
-                </label>
-                <input
-                  type="tel"
-                  value={formData.phone}
-                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  className="input-field"
-                  placeholder="+91 1234567890"
-                />
+                <label className="block text-sm font-medium text-foreground mb-2">Phone</label>
+                <div className="flex gap-2">
+                  <input type="text" value="+91" readOnly className="input-field w-16 bg-muted cursor-not-allowed" />
+                  <input
+                    type="tel"
+                    value={formData.phone}
+                    maxLength={10}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/\D/g, '').slice(0, 10);
+                    setFormData({ ...formData, phone: val });
+                    if (val.length === 10 && !PHONE_REGEX.test(val)) {
+                      setFormErrors(p => ({ ...p, phone: 'Must start with 6, 7, 8 or 9' }));
+                    } else if (val.length > 0 && val.length < 10) {
+                      setFormErrors(p => ({ ...p, phone: '' }));
+                    } else {
+                      setFormErrors(p => ({ ...p, phone: '' }));
+                    }
+                  }}
+                    className={`input-field flex-1 ${formErrors.phone ? 'border-destructive' : ''}`}
+                    placeholder="10-digit mobile number"
+                  />
+                </div>
+                {formErrors.phone && <p className="text-xs text-destructive mt-1">{formErrors.phone}</p>}
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
-                  Address
-                </label>
+                <label className="block text-sm font-medium text-foreground mb-2">Address</label>
                 <textarea
                   value={formData.address}
                   onChange={(e) => setFormData({ ...formData, address: e.target.value })}
@@ -278,31 +331,72 @@ const CompanyManagement = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
-                  GST Number
-                </label>
+                <label className="block text-sm font-medium text-foreground mb-2">GST Number</label>
                 <input
                   type="text"
                   value={formData.gstNumber}
-                  onChange={(e) => setFormData({ ...formData, gstNumber: e.target.value })}
-                  className="input-field"
+                  maxLength={15}
+                  onChange={(e) => {
+                    const val = e.target.value.toUpperCase();
+                    setFormData({ ...formData, gstNumber: val });
+                    if (val.length === 15 && !GST_REGEX.test(val)) {
+                      setFormErrors(p => ({ ...p, gstNumber: 'Invalid GST format (e.g. 22AAAAA0000A1Z5)' }));
+                    } else {
+                      setFormErrors(p => ({ ...p, gstNumber: '' }));
+                    }
+                  }}
+                  className={`input-field ${formErrors.gstNumber ? 'border-destructive' : ''}`}
                   placeholder="22AAAAA0000A1Z5"
                 />
+                {formErrors.gstNumber && <p className="text-xs text-destructive mt-1">{formErrors.gstNumber}</p>}
               </div>
 
               <div className="flex gap-3 pt-4">
-                <button
-                  type="button"
-                  onClick={handleCloseModal}
-                  className="flex-1 btn-secondary"
-                >
+                <button type="button" onClick={handleCloseModal} className="flex-1 btn-secondary">
                   Cancel
                 </button>
-                <button type="submit" className="flex-1 btn-primary">
+                <button
+                  type="submit"
+                  disabled={!isFormValid()}
+                  className="flex-1 btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                >
                   {editingCompany ? 'Update' : 'Create'} Company
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* Delete Confirmation Modal */}
+      {deletingCompany && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-card rounded-xl shadow-xl max-w-sm w-full p-6">
+            <div className="flex items-center gap-4 mb-4">
+              <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center flex-shrink-0">
+                <Trash2 size={22} className="text-destructive" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-foreground">Delete Company</h3>
+                <p className="text-sm text-muted-foreground">This action cannot be undone</p>
+              </div>
+            </div>
+            <p className="text-sm text-foreground mb-6">
+              Are you sure you want to delete <span className="font-semibold">{deletingCompany.companyName}</span>? All users associated with this company will be affected.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeletingCompany(null)}
+                className="flex-1 btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                className="flex-1 bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-lg px-4 py-2 text-sm font-medium transition-colors"
+              >
+                Yes, Delete
+              </button>
+            </div>
           </div>
         </div>
       )}
