@@ -6,6 +6,9 @@ import { toast } from 'sonner';
 import { SearchBar } from '@/components/common/SearchBar';
 import { ExportButton } from '@/components/common/ExportButton';
 import { exportToExcel, formatDateForExcel, formatCurrencyForExcel } from '@/utils/excelExport';
+import { DeleteConfirmModal } from '@/components/common/DeleteConfirmModal';
+import { SortableHeader } from '@/components/common/SortableHeader';
+import { useSortable } from '@/hooks/useSortable';
 import {
   Package,
   Plus,
@@ -55,6 +58,7 @@ const ProductManagement = () => {
   const [imagePreview, setImagePreview] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
 
   const units = ['piece', 'kg', 'litre', 'meter', 'box', 'set', 'dozen'];
   const taxTypes = ['GST', 'IGST', 'No Tax'];
@@ -77,10 +81,11 @@ const ProductManagement = () => {
 
   // Pagination
   const totalPages = Math.ceil(filteredProducts.length / ITEMS_PER_PAGE);
+  const { sortedData: sortedProducts, sort, handleSort } = useSortable(filteredProducts);
   const paginatedProducts = useMemo(() => {
     const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-    return filteredProducts.slice(startIndex, startIndex + ITEMS_PER_PAGE);
-  }, [filteredProducts, currentPage]);
+    return sortedProducts.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [sortedProducts, currentPage]);
 
   // Reset to page 1 when filters change
   React.useEffect(() => {
@@ -191,9 +196,8 @@ const ProductManagement = () => {
     setShowModal(true);
   };
 
-  const handleDeactivate = async (id: string) => {
-    if (!confirm('Deactivate this product? It will no longer appear in new quotations.')) return;
-    await deleteProduct(id);
+  const handleDeactivate = (id: string) => {
+    setDeletingProductId(id);
   };
 
   const handleCloseModal = () => {
@@ -296,7 +300,7 @@ const ProductManagement = () => {
                   <thead>
                     <tr className="table-header">
                       <th className="px-6 py-4 text-left">Image</th>
-                      <th className="px-6 py-4 text-left">Product Name</th>
+                      <SortableHeader label="Product Name" sortKey="name" sort={sort} onSort={handleSort} />
                       <th className="px-6 py-4 text-right">Price</th>
                       <th className="px-6 py-4 text-center">Unit</th>
                       <th className="px-6 py-4 text-center">Quantity</th>
@@ -393,8 +397,8 @@ const ProductManagement = () => {
                 <div className="px-6 py-4 border-t border-border flex items-center justify-between">
                   <p className="text-sm text-muted-foreground">
                     Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1} to{' '}
-                    {Math.min(currentPage * ITEMS_PER_PAGE, filteredProducts.length)} of{' '}
-                    {filteredProducts.length} products
+                    {Math.min(currentPage * ITEMS_PER_PAGE, sortedProducts.length)} of{' '}
+                    {sortedProducts.length} products
                   </p>
                   <div className="flex items-center gap-2">
                     <button
@@ -675,6 +679,14 @@ const ProductManagement = () => {
           </div>
         </div>
       )}
+      {/* Delete Confirmation Modal */}
+      <DeleteConfirmModal
+        isOpen={!!deletingProductId}
+        onClose={() => setDeletingProductId(null)}
+        onConfirm={async () => { if (deletingProductId) await deleteProduct(deletingProductId); }}
+        title="Deactivate Product"
+        message="Deactivate this product? It will no longer appear in new quotations."
+      />
     </div>
   );
 };

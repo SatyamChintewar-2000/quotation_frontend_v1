@@ -5,8 +5,22 @@ import { userService, UserDTO, UserRequest, RoleDTO } from '@/services/userServi
 import { companyService, Company } from '@/services/companyService';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
+import { DeleteConfirmModal } from '@/components/common/DeleteConfirmModal';
+import { SortableHeader } from '@/components/common/SortableHeader';
+import { useSortable } from '@/hooks/useSortable';
+import { StatusBadge } from '@/components/common/StatusBadge';
 
-const PHONE_REGEX = /^[0-9]{7,15}$/;
+const PHONE_REGEX = /^[6-9][0-9]{9}$/;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+interface FormErrors {
+  name?: string;
+  email?: string;
+  password?: string;
+  roleId?: string;
+  companyId?: string;
+  phone?: string;
+}
 
 const UserManagement = () => {
   const { user: currentUser } = useAuth();
@@ -17,7 +31,8 @@ const UserManagement = () => {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingUser, setEditingUser] = useState<UserDTO | null>(null);
-  const [phoneError, setPhoneError] = useState('');
+  const [deletingUser, setDeletingUser] = useState<UserDTO | null>(null);
+  const [formErrors, setFormErrors] = useState<FormErrors>({});
   const [formData, setFormData] = useState<UserRequest>({
     name: '',
     email: '',
@@ -77,14 +92,40 @@ const UserManagement = () => {
     }
   };
 
+  const validate = (): boolean => {
+    const errors: FormErrors = {};
+    if (!formData.name.trim()) errors.name = 'Name is required';
+    if (!formData.email.trim()) {
+      errors.email = 'Email is required';
+    } else if (!EMAIL_REGEX.test(formData.email)) {
+      errors.email = 'Enter a valid email address';
+    }
+    if (!editingUser) {
+      if (!formData.password) errors.password = 'Password is required';
+      else if (formData.password.length < 6) errors.password = 'Password must be at least 6 characters';
+    }
+    if (!formData.roleId) errors.roleId = 'Role is required';
+    if (needsCompanySelection && !formData.companyId) errors.companyId = 'Company is required';
+    if (formData.phone && !PHONE_REGEX.test(formData.phone)) {
+      errors.phone = 'Enter a valid 10-digit Indian mobile number (starts with 6, 7, 8 or 9)';
+    }
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const isFormValid = (): boolean => {
+    if (!formData.name.trim()) return false;
+    if (!formData.email.trim() || !EMAIL_REGEX.test(formData.email)) return false;
+    if (!editingUser && (!formData.password || formData.password.length < 6)) return false;
+    if (!formData.roleId) return false;
+    if (needsCompanySelection && !formData.companyId) return false;
+    if (formData.phone && !PHONE_REGEX.test(formData.phone)) return false;
+    return true;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Phone validation
-    if (formData.phone && !PHONE_REGEX.test(formData.phone)) {
-      setPhoneError('Phone must be 7-15 digits only');
-      return;
-    }
-    setPhoneError('');
+    if (!validate()) return;
     try {
       if (editingUser) {
         await userService.update(editingUser.id, formData);
@@ -122,11 +163,14 @@ const UserManagement = () => {
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm('Are you sure you want to delete this user?')) return;
-    
+  const handleDelete = (user: UserDTO) => {
+    setDeletingUser(user);
+  };
+
+  const confirmDelete = async () => {
+    if (!deletingUser) return;
     try {
-      await userService.delete(id);
+      await userService.delete(deletingUser.id);
       toast.success('User deleted successfully');
       fetchData();
     } catch (error) {
@@ -163,6 +207,7 @@ const UserManagement = () => {
       department: '',
       companyId: undefined,
     });
+    setFormErrors({});
   };
 
   // Get selected role name
@@ -171,6 +216,7 @@ const UserManagement = () => {
     return role?.roleName || '';
   };
 
+  const isSuperAdmin = currentUser?.role === 'superadmin';
   const isCreatingClient = !editingUser && getSelectedRoleName() === 'CLIENT';
   // SUPER_ADMIN creating STAFF also needs company selection
   const isCreatingStaff = !editingUser && getSelectedRoleName() === 'STAFF';
@@ -192,7 +238,7 @@ const UserManagement = () => {
     ? users.filter(u => u.companyId === selectedCompanyId)
     : users;
 
-  const isSuperAdmin = currentUser?.role === 'superadmin';
+  const { sortedData: sortedUsers, sort, handleSort } = useSortable(filteredUsers);
 
   if (loading) {
     return (
@@ -267,7 +313,7 @@ const UserManagement = () => {
             <table className="w-full">
               <thead>
                 <tr className="table-header">
-                  <th className="px-6 py-4 text-left">Name</th>
+                  <SortableHeader label="Name" sortKey="name" sort={sort} onSort={handleSort} />
                   <th className="px-6 py-4 text-left">Email</th>
                   <th className="px-6 py-4 text-left">Role</th>
                   {isSuperAdmin && <th className="px-6 py-4 text-left">Company</th>}
@@ -278,7 +324,7 @@ const UserManagement = () => {
                 </tr>
               </thead>
               <tbody>
-                {filteredUsers.map((user) => (
+                {sortedUsers.map((user) => (
                   <tr key={user.id} className="table-row">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
@@ -328,9 +374,7 @@ const UserManagement = () => {
                       )}
                     </td>
                     <td className="px-6 py-4">
-                      <span className={user.active ? 'badge-success' : 'badge-warning'}>
-                        {user.active ? 'Active' : 'Inactive'}
-                      </span>
+                      <StatusBadge status={user.active ? 'active' : 'inactive'} />
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center justify-end gap-2">
@@ -347,6 +391,13 @@ const UserManagement = () => {
                           title={user.active ? 'Deactivate' : 'Activate'}
                         >
                           {user.active ? <ToggleRight size={22} /> : <ToggleLeft size={22} />}
+                        </button>
+                        <button
+                          onClick={() => handleDelete(user)}
+                          className="p-2 rounded-lg text-destructive hover:bg-destructive/10 transition-colors"
+                          title="Delete"
+                        >
+                          <Trash2 size={18} />
                         </button>
                       </div>
                     </td>
@@ -370,137 +421,122 @@ const UserManagement = () => {
             
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
-                  Name *
-                </label>
+                <label className="block text-sm font-medium text-foreground mb-2">Name *</label>
                 <input
                   type="text"
                   value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="input-field"
-                  required
+                  onChange={(e) => { setFormData({ ...formData, name: e.target.value }); setFormErrors(p => ({ ...p, name: '' })); }}
+                  className={`input-field ${formErrors.name ? 'border-destructive' : ''}`}
+                  placeholder="Enter full name"
                 />
+                {formErrors.name && <p className="text-xs text-destructive mt-1">{formErrors.name}</p>}
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
-                  Email *
-                </label>
+                <label className="block text-sm font-medium text-foreground mb-2">Email *</label>
                 <input
-                  type="email"
+                  type="text"
                   value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="input-field"
-                  required
+                  onChange={(e) => { setFormData({ ...formData, email: e.target.value }); setFormErrors(p => ({ ...p, email: '' })); }}
+                  className={`input-field ${formErrors.email ? 'border-destructive' : ''}`}
+                  placeholder="user@example.com"
                 />
+                {formErrors.email && <p className="text-xs text-destructive mt-1">{formErrors.email}</p>}
               </div>
 
               {!editingUser && (
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">
-                    Password *
-                  </label>
+                  <label className="block text-sm font-medium text-foreground mb-2">Password *</label>
                   <input
                     type="password"
                     value={formData.password}
-                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                    className="input-field"
-                    required={!editingUser}
-                    placeholder="Enter password"
+                    onChange={(e) => { setFormData({ ...formData, password: e.target.value }); setFormErrors(p => ({ ...p, password: '' })); }}
+                    className={`input-field ${formErrors.password ? 'border-destructive' : ''}`}
+                    placeholder="Min. 6 characters"
                   />
+                  {formErrors.password && <p className="text-xs text-destructive mt-1">{formErrors.password}</p>}
                 </div>
               )}
 
               <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
-                  Role *
-                </label>
+                <label className="block text-sm font-medium text-foreground mb-2">Role *</label>
                 <select
                   value={formData.roleId}
-                  onChange={(e) => setFormData({ ...formData, roleId: Number(e.target.value) })}
-                  className="input-field"
-                  required
+                  onChange={(e) => { setFormData({ ...formData, roleId: Number(e.target.value) }); setFormErrors(p => ({ ...p, roleId: '' })); }}
+                  className={`input-field ${formErrors.roleId ? 'border-destructive' : ''}`}
                 >
                   {availableRoles.map((role) => (
-                    <option key={role.id} value={role.id}>
-                      {role.roleName}
-                    </option>
+                    <option key={role.id} value={role.id}>{role.roleName}</option>
                   ))}
                 </select>
+                {formErrors.roleId && <p className="text-xs text-destructive mt-1">{formErrors.roleId}</p>}
               </div>
 
-              {/* Company dropdown - for SUPER_ADMIN creating CLIENT or STAFF users */}
               {needsCompanySelection && companies.length > 0 && (
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">
-                    Company *
-                  </label>
+                  <label className="block text-sm font-medium text-foreground mb-2">Company *</label>
                   <select
                     value={formData.companyId || ''}
-                    onChange={(e) => setFormData({ ...formData, companyId: e.target.value ? Number(e.target.value) : undefined })}
-                    className="input-field"
-                    required
+                    onChange={(e) => { setFormData({ ...formData, companyId: e.target.value ? Number(e.target.value) : undefined }); setFormErrors(p => ({ ...p, companyId: '' })); }}
+                    className={`input-field ${formErrors.companyId ? 'border-destructive' : ''}`}
                   >
                     <option value="">Select Company</option>
                     {companies.map((company) => (
-                      <option key={company.id} value={company.id}>
-                        {company.companyName}
-                      </option>
+                      <option key={company.id} value={company.id}>{company.companyName}</option>
                     ))}
                   </select>
+                  {formErrors.companyId && <p className="text-xs text-destructive mt-1">{formErrors.companyId}</p>}
                 </div>
               )}
 
               <div className="grid grid-cols-3 gap-2">
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">
-                    Code
-                  </label>
+                  <label className="block text-sm font-medium text-foreground mb-2">Code</label>
                   <input
                     type="text"
-                    value={formData.countryCode}
-                    onChange={(e) => setFormData({ ...formData, countryCode: e.target.value })}
-                    className="input-field"
-                    placeholder="+91"
+                    value="+91"
+                    readOnly
+                    className="input-field bg-muted cursor-not-allowed"
                   />
                 </div>
                 <div className="col-span-2">
-                  <label className="block text-sm font-medium text-foreground mb-2">
-                    Phone
-                  </label>
+                  <label className="block text-sm font-medium text-foreground mb-2">Phone</label>
                   <input
                     type="tel"
                     value={formData.phone}
-                    onChange={(e) => { setFormData({ ...formData, phone: e.target.value }); setPhoneError(''); }}
-                    className={`input-field ${phoneError ? 'border-destructive' : ''}`}
-                    placeholder="Phone number (digits only)"
+                    maxLength={10}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, '').slice(0, 10);
+                      setFormData({ ...formData, phone: val });
+                      setFormErrors(p => ({ ...p, phone: '' }));
+                    }}
+                    className={`input-field ${formErrors.phone ? 'border-destructive' : ''}`}
+                    placeholder="10-digit mobile number"
                   />
-                  {phoneError && <p className="text-xs text-destructive mt-1">{phoneError}</p>}
+                  {formErrors.phone && <p className="text-xs text-destructive mt-1">{formErrors.phone}</p>}
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
-                  Department
-                </label>
+                <label className="block text-sm font-medium text-foreground mb-2">Department</label>
                 <input
                   type="text"
                   value={formData.department}
                   onChange={(e) => setFormData({ ...formData, department: e.target.value })}
                   className="input-field"
-                  placeholder="e.g., Sales, IT, HR"
+                  placeholder="e.g., Sales, IT, HR (optional)"
                 />
               </div>
 
               <div className="flex gap-3 pt-4">
-                <button
-                  type="button"
-                  onClick={handleCloseModal}
-                  className="flex-1 btn-secondary"
-                >
+                <button type="button" onClick={handleCloseModal} className="flex-1 btn-secondary">
                   Cancel
                 </button>
-                <button type="submit" className="flex-1 btn-primary">
+                <button
+                  type="submit"
+                  disabled={!isFormValid()}
+                  className="flex-1 btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                >
                   {editingUser ? 'Update' : 'Create'} User
                 </button>
               </div>
@@ -508,6 +544,14 @@ const UserManagement = () => {
           </div>
         </div>
       )}
+      {/* Delete Confirmation Modal */}
+      <DeleteConfirmModal
+        isOpen={!!deletingUser}
+        onClose={() => setDeletingUser(null)}
+        onConfirm={confirmDelete}
+        title="Delete User"
+        itemName={deletingUser?.name}
+      />
     </div>
   );
 };

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { useAuth } from '@/contexts/AuthContext';
@@ -19,6 +19,9 @@ import {
   AlertTriangle,
   Calendar,
   FileSignature,
+  ChevronDown,
+  Search,
+  X,
 } from 'lucide-react';
 
 interface QuotationItemForm {
@@ -28,6 +31,8 @@ interface QuotationItemForm {
   unitPrice: number;
   discountPercentage: number;
   taxPercentage: number;
+  discountInput: string;
+  taxInput: string;
 }
 
 const NewQuotation = () => {
@@ -76,7 +81,26 @@ const NewQuotation = () => {
     }
   };
 
+  // Customer dropdown state
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+  const [customerSearch, setCustomerSearch] = useState('');
+  const customerDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (customerDropdownRef.current && !customerDropdownRef.current.contains(e.target as Node)) {
+        setShowCustomerDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   const selectedCustomer = customers.find((c) => c.id === selectedCustomerId);
+  const filteredCustomers = customers.filter(c =>
+    c.customerName.toLowerCase().includes(customerSearch.toLowerCase()) ||
+    c.email.toLowerCase().includes(customerSearch.toLowerCase())
+  );
 
   const filteredProducts = products.filter(
     (p) =>
@@ -95,6 +119,8 @@ const NewQuotation = () => {
       unitPrice: Number(product.price),
       discountPercentage: Number(product.discountPercentage || 0),
       taxPercentage: product.taxType === 'No Tax' ? 0 : Number(product.taxPercentage || 0),
+      discountInput: String(Number(product.discountPercentage || 0)),
+      taxInput: product.taxType === 'No Tax' ? '0' : String(Number(product.taxPercentage || 0)),
     };
 
     setQuotationItems((prev) => [...prev, newItem]);
@@ -113,25 +139,23 @@ const NewQuotation = () => {
     );
   };
 
-  const updateItemDiscount = (productId: number, newDiscount: number) => {
-    if (newDiscount < 0 || newDiscount > 100) return;
-
+  const updateItemDiscount = (productId: number, inputVal: string) => {
+    const num = parseFloat(inputVal);
     setQuotationItems((prev) =>
       prev.map((item) =>
         item.productId === productId
-          ? { ...item, discountPercentage: newDiscount }
+          ? { ...item, discountInput: inputVal, discountPercentage: isNaN(num) ? 0 : Math.min(100, Math.max(0, num)) }
           : item
       )
     );
   };
 
-  const updateItemTax = (productId: number, newTax: number) => {
-    if (newTax < 0 || newTax > 100) return;
-
+  const updateItemTax = (productId: number, inputVal: string) => {
+    const num = parseFloat(inputVal);
     setQuotationItems((prev) =>
       prev.map((item) =>
         item.productId === productId
-          ? { ...item, taxPercentage: newTax }
+          ? { ...item, taxInput: inputVal, taxPercentage: isNaN(num) ? 0 : Math.min(100, Math.max(0, num)) }
           : item
       )
     );
@@ -275,18 +299,70 @@ const NewQuotation = () => {
                 <h3 className="font-semibold text-foreground">Select Customer</h3>
               </div>
 
-              <select
-                value={selectedCustomerId}
-                onChange={(e) => setSelectedCustomerId(Number(e.target.value))}
-                className="input-field"
-              >
-                <option value={0}>Choose a customer...</option>
-                {customers.map((customer) => (
-                  <option key={customer.id} value={customer.id}>
-                    {customer.customerName} - {customer.email}
-                  </option>
-                ))}
-              </select>
+              {/* Custom Customer Dropdown */}
+              <div className="relative" ref={customerDropdownRef}>
+                <button
+                  type="button"
+                  onClick={() => setShowCustomerDropdown(p => !p)}
+                  className="input-field w-full flex items-center justify-between text-left"
+                >
+                  <span className={selectedCustomer ? 'text-foreground' : 'text-muted-foreground'}>
+                    {selectedCustomer ? selectedCustomer.customerName : 'Choose a customer...'}
+                  </span>
+                  <ChevronDown size={16} className={`text-muted-foreground transition-transform flex-shrink-0 ${showCustomerDropdown ? 'rotate-180' : ''}`} />
+                </button>
+
+                {showCustomerDropdown && (
+                  <div className="absolute z-20 mt-1 w-full bg-card border border-border rounded-lg shadow-lg overflow-hidden">
+                    {/* Search inside dropdown */}
+                    <div className="p-2 border-b border-border">
+                      <div className="relative">
+                        <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                        <input
+                          type="text"
+                          value={customerSearch}
+                          onChange={(e) => setCustomerSearch(e.target.value)}
+                          placeholder="Search customer..."
+                          className="w-full pl-8 pr-3 py-1.5 text-sm bg-muted rounded border-0 outline-none focus:ring-1 focus:ring-ring"
+                          autoFocus
+                        />
+                      </div>
+                    </div>
+                    <div className="max-h-52 overflow-y-auto">
+                      {filteredCustomers.length === 0 ? (
+                        <p className="text-sm text-muted-foreground text-center py-4">No customers found</p>
+                      ) : (
+                        filteredCustomers.map((customer) => (
+                          <button
+                            key={customer.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedCustomerId(customer.id);
+                              setShowCustomerDropdown(false);
+                              setCustomerSearch('');
+                            }}
+                            className={`w-full text-left px-4 py-2.5 transition-colors hover:bg-muted ${selectedCustomerId === customer.id ? 'bg-primary/10 text-primary' : 'text-foreground'}`}
+                          >
+                            <p className="text-sm font-medium">{customer.customerName}</p>
+                            <p className="text-xs text-muted-foreground">{customer.email}</p>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                    {selectedCustomerId > 0 && (
+                      <div className="p-2 border-t border-border">
+                        <button
+                          type="button"
+                          onClick={() => { setSelectedCustomerId(0); setShowCustomerDropdown(false); }}
+                          className="w-full flex items-center justify-center gap-1 text-xs text-destructive hover:bg-destructive/10 py-1.5 rounded transition-colors"
+                        >
+                          <X size={12} /> Clear selection
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
 
               {customers.length === 0 && (
                 <div className="mt-4 p-4 rounded-lg bg-warning/10 border border-warning/20">
@@ -545,12 +621,9 @@ const NewQuotation = () => {
                             <td className="px-4 py-4">
                               <input
                                 type="number"
-                                value={item.discountPercentage}
+                                value={item.discountInput}
                                 onChange={(e) =>
-                                  updateItemDiscount(
-                                    item.productId,
-                                    parseFloat(e.target.value) || 0
-                                  )
+                                  updateItemDiscount(item.productId, e.target.value)
                                 }
                                 className="w-20 text-center input-field py-1 px-2 mx-auto block"
                                 min="0"
@@ -560,16 +633,13 @@ const NewQuotation = () => {
                             </td>
                             <td className="px-4 py-4">
                               {product?.taxType === 'No Tax' ? (
-                                <span className="text-sm text-muted-foreground">No Tax</span>
+                                <span className="text-sm text-muted-foreground block text-center">No Tax</span>
                               ) : (
                                 <input
                                   type="number"
-                                  value={item.taxPercentage}
+                                  value={item.taxInput}
                                   onChange={(e) =>
-                                    updateItemTax(
-                                      item.productId,
-                                      parseFloat(e.target.value) || 0
-                                    )
+                                    updateItemTax(item.productId, e.target.value)
                                   }
                                   className="w-20 text-center input-field py-1 px-2 mx-auto block"
                                   min="0"

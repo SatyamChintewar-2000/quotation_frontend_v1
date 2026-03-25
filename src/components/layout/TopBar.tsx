@@ -1,6 +1,9 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { Bell, Search, LogOut } from 'lucide-react';
+import { useQuotations } from '@/contexts/QuotationContext';
+import { Bell, LogOut, CheckCheck, Check } from 'lucide-react';
+
 
 interface TopBarProps {
   title: string;
@@ -8,6 +11,34 @@ interface TopBarProps {
 
 export const TopBar = ({ title }: TopBarProps) => {
   const { user, logout } = useAuth();
+  const { quotations } = useQuotations();
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [readIds, setReadIds] = useState<Set<string>>(new Set());
+  const notifRef = useRef<HTMLDivElement>(null);
+
+  const recentNotifications = quotations.slice(0, 5);
+  const unreadCount = recentNotifications.filter(q => !readIds.has(q.id)).length;
+
+  // Close on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
+        setShowNotifications(false);
+      }
+    };
+    if (showNotifications) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showNotifications]);
+
+  const handleMarkAsRead = (id: string) => {
+    setReadIds(prev => new Set([...prev, id]));
+  };
+
+  const handleMarkAllAsRead = () => {
+    setReadIds(new Set(recentNotifications.map(q => q.id)));
+  };
 
   return (
     <header className="h-16 bg-card border-b border-border flex items-center justify-between px-6 sticky top-0 z-40">
@@ -16,24 +47,69 @@ export const TopBar = ({ title }: TopBarProps) => {
       </div>
 
       <div className="flex items-center gap-4">
-        {/* Search */}
-        <div className="relative hidden md:block">
-          <Search
-            size={18}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-          />
-          <input
-            type="text"
-            placeholder="Search..."
-            className="pl-10 pr-4 py-2 rounded-lg bg-muted border border-border text-sm focus:outline-none focus:ring-2 focus:ring-ring w-64"
-          />
+        {/* Notifications */}
+        <div className="relative" ref={notifRef}>
+          <button
+            onClick={() => setShowNotifications(!showNotifications)}
+            className="relative p-2 rounded-lg hover:bg-muted transition-colors"
+          >
+            <Bell size={20} className="text-muted-foreground" />
+            {unreadCount > 0 && (
+              <span className="absolute top-1 right-1 min-w-[16px] h-4 bg-primary rounded-full flex items-center justify-center text-[10px] text-primary-foreground font-bold px-0.5">
+                {unreadCount}
+              </span>
+            )}
+          </button>
+
+          {showNotifications && (
+            <div className="absolute right-0 top-12 w-80 bg-card border border-border rounded-xl shadow-lg z-50">
+              <div className="p-4 border-b border-border flex items-center justify-between">
+                <p className="font-semibold text-foreground">Notifications</p>
+                {unreadCount > 0 && (
+                  <button
+                    onClick={handleMarkAllAsRead}
+                    className="flex items-center gap-1 text-xs text-primary hover:underline"
+                  >
+                    <CheckCheck size={13} />
+                    Mark all as read
+                  </button>
+                )}
+              </div>
+              {recentNotifications.length === 0 ? (
+                <div className="p-4 text-sm text-muted-foreground text-center">No recent activity</div>
+              ) : (
+                recentNotifications.map((q) => {
+                  const isRead = readIds.has(q.id);
+                  return (
+                    <div
+                      key={q.id}
+                      className={`p-4 border-b border-border last:border-0 transition-colors ${isRead ? 'opacity-60' : 'bg-primary/5 hover:bg-muted'}`}
+                    >
+                      <div className="flex justify-between items-start gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-sm font-medium text-foreground truncate ${!isRead ? 'font-semibold' : ''}`}>
+                            #{q.id} — {q.clientName}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-0.5 capitalize">{q.status} · ₹{q.grandTotal.toFixed(2)}</p>
+                        </div>
+                        {!isRead && (
+                          <button
+                            onClick={() => handleMarkAsRead(q.id)}
+                            className="flex-shrink-0 p-1 rounded hover:bg-primary/10 text-primary transition-colors"
+                            title="Mark as read"
+                          >
+                            <Check size={14} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
         </div>
 
-        {/* Notifications */}
-        <button className="relative p-2 rounded-lg hover:bg-muted transition-colors">
-          <Bell size={20} className="text-muted-foreground" />
-          <span className="absolute top-1 right-1 w-2 h-2 bg-primary rounded-full"></span>
-        </button>
 
         {/* User Menu */}
         <div className="flex items-center gap-3 pl-4 border-l border-border">
