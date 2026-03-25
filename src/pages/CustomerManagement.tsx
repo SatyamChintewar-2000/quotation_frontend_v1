@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { TopBar } from '@/components/layout/TopBar';
-import { Users, Plus, Edit, Trash2, Mail, Phone, MapPin, Building2 } from 'lucide-react';
+import { Users, Plus, Edit, Trash2, Mail, Phone, MapPin } from 'lucide-react';
 import { customerService, Customer, CustomerRequest } from '@/services/customerService';
 import { toast } from 'sonner';
 import { ExportButton } from '@/components/common/ExportButton';
 import { SearchBar } from '@/components/common/SearchBar';
 import { Pagination } from '@/components/common/Pagination';
+import { DeleteConfirmModal } from '@/components/common/DeleteConfirmModal';
 import { exportToExcel } from '@/utils/excelExport';
 
 const ITEMS_PER_PAGE = 9; // 3x3 grid
@@ -21,9 +22,10 @@ const CustomerManagement = () => {
     phone: '',
     address: '',
   });
-  const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [deletingCustomer, setDeletingCustomer] = useState<Customer | null>(null);
 
   const filteredCustomers = customers.filter((c) =>
     c.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -56,21 +58,45 @@ const CustomerManagement = () => {
     }
   };
 
+  const PHONE_REGEX = /^[6-9][0-9]{9}$/;
+  const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  const validate = (): boolean => {
+    const newErrors: Record<string, string> = {};
+
+    if (!formData.customerName.trim()) {
+      newErrors.customerName = 'Customer name is required';
+    } else if (!/^[a-zA-Z\s'-]+$/.test(formData.customerName.trim())) {
+      newErrors.customerName = 'Name can only contain letters, spaces, hyphens, or apostrophes';
+    }
+
+    if (!formData.email.trim()) {
+      newErrors.email = 'Email is required';
+    } else if (!EMAIL_REGEX.test(formData.email)) {
+      newErrors.email = 'Enter a valid email address';
+    }
+
+    if (!formData.phone.trim()) {
+      newErrors.phone = 'Phone number is required';
+    } else if (!PHONE_REGEX.test(formData.phone)) {
+      newErrors.phone = 'Enter a valid 10-digit Indian mobile number (starts with 6–9)';
+    } else {
+      const isDuplicate = customers.some(
+        (c) => c.phone === formData.phone && (!editingCustomer || c.id !== editingCustomer.id)
+      );
+      if (isDuplicate) {
+        newErrors.phone = 'This phone number is already registered with another customer';
+      }
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    // Validate phone number is unique
-    setPhoneError(null);
-    const isDuplicatePhone = customers.some(c => 
-      c.phone === formData.phone && 
-      (!editingCustomer || c.id !== editingCustomer.id)
-    );
-    
-    if (isDuplicatePhone) {
-      setPhoneError('This phone number is already registered with another customer');
-      return;
-    }
-    
+    if (!validate()) return;
+
     try {
       if (editingCustomer) {
         await customerService.update(editingCustomer.id, formData);
@@ -85,19 +111,22 @@ const CustomerManagement = () => {
     } catch (error: any) {
       console.error('Failed to save customer:', error);
       const errorMessage = error.response?.data?.message || 'Failed to save customer';
-      if (errorMessage.includes('phone')) {
-        setPhoneError(errorMessage);
+      if (errorMessage.toLowerCase().includes('phone')) {
+        setErrors((prev) => ({ ...prev, phone: errorMessage }));
       } else {
         toast.error(errorMessage);
       }
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm('Are you sure you want to delete this customer?')) return;
-    
+  const handleDelete = (customer: Customer) => {
+    setDeletingCustomer(customer);
+  };
+
+  const confirmDelete = async () => {
+    if (!deletingCustomer) return;
     try {
-      await customerService.delete(id);
+      await customerService.delete(deletingCustomer.id);
       toast.success('Customer deleted successfully');
       fetchCustomers();
     } catch (error) {
@@ -125,7 +154,7 @@ const CustomerManagement = () => {
       phone: '',
       address: '',
     });
-    setPhoneError(null);
+    setErrors({});
   };
 
   const handleCloseModal = () => {
@@ -221,69 +250,72 @@ const CustomerManagement = () => {
               {paginatedCustomers.map((customer, index) => (
               <div
                 key={customer.id}
-                className="bg-card rounded-xl shadow-md border border-border p-6 hover:shadow-lg transition-all duration-300 animate-slide-in-up"
+                className="bg-card rounded-xl shadow-md border border-border hover:shadow-lg transition-all duration-300 animate-slide-in-up overflow-hidden flex flex-col"
                 style={{ animationDelay: `${index * 50}ms` }}
               >
-                <div className="flex items-start gap-4 mb-4">
-                  <div className="w-14 h-14 rounded-xl bg-primary/10 flex items-center justify-center text-primary font-bold text-xl">
-                    {customer.customerName.charAt(0)}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-foreground truncate">
-                      {customer.customerName}
-                    </h3>
-                    {customer.companyName && (
-                      <p className="text-sm text-muted-foreground truncate">
-                        {customer.companyName}
-                      </p>
-                    )}
+                {/* Card Header */}
+                <div className="p-5 pb-4">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center text-primary font-bold text-lg flex-shrink-0">
+                        {customer.customerName.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="min-w-0">
+                        <h3 className="font-semibold text-foreground truncate leading-tight">
+                          {customer.customerName}
+                        </h3>
+                        {customer.companyName && (
+                          <p className="text-xs text-muted-foreground truncate mt-0.5">
+                            {customer.companyName}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    {/* Action buttons top-right */}
+                    <div className="flex items-center gap-1 ml-2 flex-shrink-0">
+                      <button
+                        onClick={() => handleEdit(customer)}
+                        className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                        title="Edit"
+                      >
+                        <Edit size={15} />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(customer)}
+                        className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                        title="Delete"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
                   </div>
                 </div>
 
-                <div className="space-y-3">
-                  <div className="flex items-center gap-3 text-sm">
-                    <Mail size={16} className="text-muted-foreground flex-shrink-0" />
-                    <span className="text-muted-foreground truncate">
-                      {customer.email}
-                    </span>
+                {/* Divider */}
+                <div className="h-px bg-border mx-5" />
+
+                {/* Card Body */}
+                <div className="p-5 pt-4 space-y-2.5 flex-1">
+                  <div className="flex items-center gap-2.5 text-sm text-muted-foreground">
+                    <Mail size={14} className="flex-shrink-0 text-primary/60" />
+                    <span className="truncate">{customer.email}</span>
                   </div>
-                  <div className="flex items-center gap-3 text-sm">
-                    <Phone size={16} className="text-muted-foreground flex-shrink-0" />
-                    <span className="text-muted-foreground">{customer.phone}</span>
+                  <div className="flex items-center gap-2.5 text-sm text-muted-foreground">
+                    <Phone size={14} className="flex-shrink-0 text-primary/60" />
+                    <span>{customer.phone}</span>
                   </div>
                   {customer.address && (
-                    <div className="flex items-start gap-3 text-sm">
-                      <MapPin size={16} className="text-muted-foreground flex-shrink-0 mt-0.5" />
-                      <span className="text-muted-foreground line-clamp-2">
-                        {customer.address}
-                      </span>
+                    <div className="flex items-start gap-2.5 text-sm text-muted-foreground">
+                      <MapPin size={14} className="flex-shrink-0 mt-0.5 text-primary/60" />
+                      <span className="line-clamp-2">{customer.address}</span>
                     </div>
                   )}
                   {customer.gstNumber && (
-                    <div className="flex items-center gap-3 text-sm">
-                      <Building2 size={16} className="text-muted-foreground flex-shrink-0" />
-                      <span className="text-muted-foreground">
-                        GST: {customer.gstNumber}
-                      </span>
+                    <div className="flex items-center gap-2.5 text-sm">
+                      <span className="text-xs font-medium bg-muted text-muted-foreground px-2 py-0.5 rounded">GST</span>
+                      <span className="text-muted-foreground font-mono text-xs">{customer.gstNumber}</span>
                     </div>
                   )}
-                </div>
-
-                <div className="flex gap-2 mt-4 pt-4 border-t border-border">
-                  <button
-                    onClick={() => handleEdit(customer)}
-                    className="p-2 rounded-lg text-primary hover:bg-primary/10 transition-colors"
-                    title="Edit"
-                  >
-                    <Edit size={18} />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(customer.id)}
-                    className="p-2 rounded-lg text-destructive hover:bg-destructive/10 transition-colors"
-                    title="Delete"
-                  >
-                    <Trash2 size={18} />
-                  </button>
                 </div>
               </div>
               ))}
@@ -317,11 +349,16 @@ const CustomerManagement = () => {
                 <input
                   type="text"
                   value={formData.customerName}
-                  onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
-                  className="input-field"
-                  required
+                  onChange={(e) => {
+                    setFormData({ ...formData, customerName: e.target.value });
+                    if (errors.customerName) setErrors((prev) => ({ ...prev, customerName: '' }));
+                  }}
+                  className={`input-field ${errors.customerName ? 'border-destructive' : ''}`}
                   placeholder="Enter customer name"
                 />
+                {errors.customerName && (
+                  <p className="text-sm text-destructive mt-1">{errors.customerName}</p>
+                )}
               </div>
 
               <div>
@@ -331,11 +368,16 @@ const CustomerManagement = () => {
                 <input
                   type="email"
                   value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="input-field"
-                  required
+                  onChange={(e) => {
+                    setFormData({ ...formData, email: e.target.value });
+                    if (errors.email) setErrors((prev) => ({ ...prev, email: '' }));
+                  }}
+                  className={`input-field ${errors.email ? 'border-destructive' : ''}`}
                   placeholder="customer@example.com"
                 />
+                {errors.email && (
+                  <p className="text-sm text-destructive mt-1">{errors.email}</p>
+                )}
               </div>
 
               <div>
@@ -346,15 +388,16 @@ const CustomerManagement = () => {
                   type="tel"
                   value={formData.phone}
                   onChange={(e) => {
-                    setFormData({ ...formData, phone: e.target.value });
-                    setPhoneError(null);
+                    const digits = e.target.value.replace(/\D/g, '').slice(0, 10);
+                    setFormData({ ...formData, phone: digits });
+                    if (errors.phone) setErrors((prev) => ({ ...prev, phone: '' }));
                   }}
-                  className={`input-field ${phoneError ? 'border-destructive' : ''}`}
-                  required
-                  placeholder="+91 1234567890"
+                  className={`input-field ${errors.phone ? 'border-destructive' : ''}`}
+                  placeholder="10-digit mobile number (e.g. 9876543210)"
+                  maxLength={10}
                 />
-                {phoneError && (
-                  <p className="text-sm text-destructive mt-1">{phoneError}</p>
+                {errors.phone && (
+                  <p className="text-sm text-destructive mt-1">{errors.phone}</p>
                 )}
               </div>
 
@@ -387,6 +430,14 @@ const CustomerManagement = () => {
           </div>
         </div>
       )}
+      {/* Delete Confirmation Modal */}
+      <DeleteConfirmModal
+        isOpen={!!deletingCustomer}
+        onClose={() => setDeletingCustomer(null)}
+        onConfirm={confirmDelete}
+        title="Delete Customer"
+        itemName={deletingCustomer?.customerName}
+      />
     </div>
   );
 };

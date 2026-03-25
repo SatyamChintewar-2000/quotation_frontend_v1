@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { useProducts } from '@/contexts/ProductContext';
 import { useQuotations } from '@/contexts/QuotationContext';
 import { TopBar } from '@/components/layout/TopBar';
-import { dashboardService, DashboardDTO } from '@/services/dashboardService';
 import { customerService } from '@/services/customerService';
 import { DateRangePicker } from '@/components/common/DateRangePicker';
+import { SortableHeader } from '@/components/common/SortableHeader';
+import { useSortable } from '@/hooks/useSortable';
+import { StatusBadge } from '@/components/common/StatusBadge';
 import {
   TrendingUp,
   FileText,
@@ -17,9 +18,7 @@ import {
 
 const Dashboard = () => {
   const { user } = useAuth();
-  const { products = [] } = useProducts();
   const { quotations = [] } = useQuotations();
-  const [dashboardData, setDashboardData] = useState<DashboardDTO | null>(null);
   const [clientsCount, setClientsCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -32,23 +31,15 @@ const Dashboard = () => {
         setIsLoading(true);
         setError(null);
 
-        // Set default date range to current date
-        const today = new Date();
-        const todayString = today.toISOString().split('T')[0];
-        setFromDate(todayString);
-        setToDate(todayString);
+        const today = new Date().toISOString().split('T')[0];
+        setFromDate(today);
+        setToDate(today);
 
-        const [dashboard, customers] = await Promise.all([
-          dashboardService.getDashboard(),
-          customerService.getAll(),
-        ]);
-        setDashboardData(dashboard);
+        const customers = await customerService.getAll();
         setClientsCount(customers.length);
       } catch (error) {
         console.error('Failed to fetch dashboard data:', error);
         setError('Failed to load dashboard data');
-        // Set default values so page doesn't break
-        setDashboardData({ quotations: 0, customers: 0, products: 0, users: 0, revenue: 0 });
         setClientsCount(0);
       } finally {
         setIsLoading(false);
@@ -87,14 +78,11 @@ const Dashboard = () => {
     return true;
   });
 
-  // Calculate filtered revenue
-  const filteredRevenue = filteredQuotations
-    .filter(q => q.status === 'approved')
-    .reduce((sum, q) => sum + q.grandTotal, 0);
+  // Calculate filtered revenue — sum of ALL quotations in range (not just approved)
+  const filteredRevenue = filteredQuotations.reduce((sum, q) => sum + q.grandTotal, 0);
 
-  // Calculate today's metrics
-  const todayQuotations = filteredQuotations.length;
-  const todayRevenue = filteredRevenue;
+  // Filtered enquiries — unique clients who have quotations in the date range
+  const filteredEnquiries = new Set(filteredQuotations.map(q => q.clientName)).size;
 
   // Determine label based on date filter
   const isToday = fromDate === toDate && fromDate === new Date().toISOString().split('T')[0];
@@ -103,32 +91,32 @@ const Dashboard = () => {
   const stats = [
     {
       label: `${dateLabel} Sales`,
-      value: todayQuotations,
+      value: filteredQuotations.length,
       change: '+12%',
       positive: true,
       icon: FileText,
       color: 'bg-primary/10 text-primary',
     },
     {
-      label: `${dateLabel} Enquires`,
-      value: clientsCount,
+      label: `${dateLabel} Enquiries`,
+      value: filteredEnquiries,
       change: '+8%',
       positive: true,
       icon: Users,
       color: 'bg-success/10 text-success',
     },
-
     {
       label: `${dateLabel} Revenue`,
-      value: `₹${todayRevenue.toFixed(2)}`,
-      change: todayRevenue > 0 ? '+15%' : '0%',
-      positive: todayRevenue > 0,
+      value: `₹${filteredRevenue.toFixed(2)}`,
+      change: filteredRevenue > 0 ? '+15%' : '0%',
+      positive: filteredRevenue > 0,
       icon: TrendingUp,
       color: 'bg-accent/10 text-accent',
     },
   ];
 
   const recentQuotations = filteredQuotations.slice(0, 5);
+  const { sortedData: sortedRecentQuotations, sort, handleSort } = useSortable(recentQuotations);
 
   if (isLoading) {
     return (
@@ -182,6 +170,7 @@ const Dashboard = () => {
                 onFromDateChange={setFromDate}
                 onToDateChange={setToDate}
                 label="Filter Period"
+                variant="light"
               />
             </div>
           </div>
@@ -236,7 +225,7 @@ const Dashboard = () => {
               <table className="w-full">
                 <thead>
                   <tr className="table-header">
-                    <th className="px-6 py-4 text-left">ID</th>
+                    <SortableHeader label="ID" sortKey="id" sort={sort} onSort={handleSort} />
                     <th className="px-6 py-4 text-left">Client</th>
                     <th className="px-6 py-4 text-left">Items</th>
                     <th className="px-6 py-4 text-left">Total</th>
@@ -245,7 +234,7 @@ const Dashboard = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {recentQuotations.map((quotation) => (
+                  {sortedRecentQuotations.map((quotation) => (
                     <tr key={quotation.id} className="table-row">
                       <td className="px-6 py-4 font-medium text-foreground">
                         {quotation.id}
@@ -260,18 +249,10 @@ const Dashboard = () => {
                         ${quotation.grandTotal.toFixed(2)}
                       </td>
                       <td className="px-6 py-4">
-                        <span
-                          className={
-                            quotation.status === 'approved'
-                              ? 'badge-success'
-                              : 'badge-warning'
-                          }
-                        >
-                          {quotation.status}
-                        </span>
+                        <StatusBadge status={quotation.status} />
                       </td>
                       <td className="px-6 py-4 text-muted-foreground">
-                        {quotation.createdAt}
+                        {new Date(quotation.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
                       </td>
                     </tr>
                   ))}

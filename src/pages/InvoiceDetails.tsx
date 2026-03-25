@@ -16,6 +16,8 @@ import {
   DollarSign,
 } from 'lucide-react';
 import { Invoice, Payment } from '@/services/invoiceService';
+import { DeleteConfirmModal } from '@/components/common/DeleteConfirmModal';
+import { StatusBadge } from '@/components/common/StatusBadge';
 
 const InvoiceDetails = () => {
   const { id } = useParams<{ id: string }>();
@@ -25,6 +27,7 @@ const InvoiceDetails = () => {
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [loading, setLoading] = useState(true);
   const [showPaymentForm, setShowPaymentForm] = useState(false);
+  const [deletingPaymentId, setDeletingPaymentId] = useState<number | null>(null);
   const [paymentData, setPaymentData] = useState({
     paymentDate: new Date().toISOString().split('T')[0],
     paymentAmount: 0,
@@ -85,13 +88,16 @@ const InvoiceDetails = () => {
     }
   };
 
-  const handleDeletePayment = async (paymentId: number | undefined) => {
+  const handleDeletePayment = (paymentId: number | undefined) => {
     if (!invoice?.id || !paymentId) return;
-    if (window.confirm('Are you sure you want to delete this payment?')) {
-      await deletePayment(invoice.id, paymentId);
-      const updated = await fetchInvoiceById(invoice.id);
-      setInvoice(updated);
-    }
+    setDeletingPaymentId(paymentId);
+  };
+
+  const confirmDeletePayment = async () => {
+    if (!invoice?.id || !deletingPaymentId) return;
+    await deletePayment(invoice.id, deletingPaymentId);
+    const updated = await fetchInvoiceById(invoice.id);
+    setInvoice(updated);
   };
 
   const formatCurrency = (amount: number) => {
@@ -104,25 +110,6 @@ const InvoiceDetails = () => {
   const formatDate = (dateString: string | undefined) => {
     if (!dateString) return '-';
     return new Date(dateString).toLocaleDateString('en-IN');
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'DRAFT':
-        return 'bg-gray-100 text-gray-800';
-      case 'SENT':
-        return 'bg-blue-100 text-blue-800';
-      case 'PAID':
-        return 'bg-green-100 text-green-800';
-      case 'PARTIAL':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'OVERDUE':
-        return 'bg-red-100 text-red-800';
-      case 'CANCELLED':
-        return 'bg-gray-300 text-gray-700';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
   };
 
   if (loading) {
@@ -175,10 +162,8 @@ const InvoiceDetails = () => {
               <p className="text-gray-600 mt-1">Invoice Date: {formatDate(invoice.invoiceDate)}</p>
             </div>
             <div className="text-right">
-              <span className={`px-4 py-2 rounded-full text-sm font-semibold ${getStatusColor(invoice.status)}`}>
-                {invoice.status}
-              </span>
-              <p className="text-gray-600 mt-2">Payment: {invoice.paymentStatus}</p>
+              <StatusBadge status={invoice.status} />
+              <p className="text-gray-600 mt-2">Payment: <StatusBadge status={invoice.paymentStatus} /></p>
             </div>
           </div>
 
@@ -511,6 +496,15 @@ const InvoiceDetails = () => {
           </div>
         </div>
       </div>
+
+      {/* Delete Payment Modal */}
+      <DeleteConfirmModal
+        isOpen={!!deletingPaymentId}
+        onClose={() => setDeletingPaymentId(null)}
+        onConfirm={confirmDeletePayment}
+        title="Delete Payment"
+        message="Are you sure you want to delete this payment record? This action cannot be undone."
+      />
     </div>
   );
 };

@@ -3,6 +3,8 @@ import { TopBar } from '@/components/layout/TopBar';
 import { Plus, Edit, Trash2, Building2, Mail, Phone, MapPin } from 'lucide-react';
 import { companyService, Company } from '@/services/companyService';
 import { toast } from 'sonner';
+import { DeleteConfirmModal } from '@/components/common/DeleteConfirmModal';
+import { StatusBadge } from '@/components/common/StatusBadge';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_REGEX = /^[6-9][0-9]{9}$/;
@@ -30,6 +32,7 @@ const CompanyManagement = () => {
   const [editingCompany, setEditingCompany] = useState<Company | null>(null);
   const [deletingCompany, setDeletingCompany] = useState<Company | null>(null);
   const [formErrors, setFormErrors] = useState<FormErrors>({});
+  const [originalData, setOriginalData] = useState<CompanyFormData | null>(null);
   const [formData, setFormData] = useState<CompanyFormData>({
     companyName: '',
     address: '',
@@ -59,10 +62,14 @@ const CompanyManagement = () => {
     const errors: FormErrors = {};
     if (!formData.companyName.trim()) errors.companyName = 'Company name is required';
     if (formData.email && !EMAIL_REGEX.test(formData.email)) errors.email = 'Enter a valid email address';
-    if (formData.phone && formData.phone.length > 0 && formData.phone.length < 10) errors.phone = 'Phone number must be 10 digits';
-    if (formData.phone && formData.phone.length === 10 && !PHONE_REGEX.test(formData.phone)) errors.phone = 'Must start with 6, 7, 8 or 9';
-    if (formData.gstNumber && formData.gstNumber.length === 15 && !GST_REGEX.test(formData.gstNumber.toUpperCase())) {
-      errors.gstNumber = 'Invalid GST format (e.g. 22AAAAA0000A1Z5)';
+    if (formData.phone) {
+      if (formData.phone.length !== 10) errors.phone = 'Phone number must be exactly 10 digits';
+      else if (!PHONE_REGEX.test(formData.phone)) errors.phone = 'Must start with 6, 7, 8 or 9';
+    }
+    if (formData.gstNumber && formData.gstNumber.trim()) {
+      if (formData.gstNumber.length === 15 && !GST_REGEX.test(formData.gstNumber.toUpperCase())) {
+        errors.gstNumber = 'Invalid GST format (e.g. 22AAAAA0000A1Z5)';
+      }
     }
     setFormErrors(errors);
     if (Object.keys(errors).length > 0) {
@@ -76,6 +83,13 @@ const CompanyManagement = () => {
     if (formData.email && !EMAIL_REGEX.test(formData.email)) return false;
     if (formData.phone && formData.phone.length === 10 && !PHONE_REGEX.test(formData.phone)) return false;
     if (formData.gstNumber && formData.gstNumber.length === 15 && !GST_REGEX.test(formData.gstNumber.toUpperCase())) return false;
+    // When editing, only enable if something actually changed
+    if (editingCompany && originalData) {
+      const isDirty = (Object.keys(formData) as (keyof CompanyFormData)[]).some(
+        (key) => formData[key] !== originalData[key]
+      );
+      if (!isDirty) return false;
+    }
     return true;
   };
 
@@ -116,21 +130,23 @@ const CompanyManagement = () => {
       setDeletingCompany(null);
     }
   };
-
   const handleEdit = (company: Company) => {
     setEditingCompany(company);
-    setFormData({
+    const data = {
       companyName: company.companyName,
       address: company.address || '',
       phone: company.phone || '',
       email: company.email || '',
       gstNumber: company.gstNumber || '',
-    });
+    };
+    setFormData(data);
+    setOriginalData(data);
     setShowModal(true);
   };
 
   const resetForm = () => {
     setEditingCompany(null);
+    setOriginalData(null);
     setFormData({ companyName: '', address: '', phone: '', email: '', gstNumber: '' });
     setFormErrors({});
   };
@@ -179,65 +195,73 @@ const CompanyManagement = () => {
           {companies.map((company) => (
             <div
               key={company.id}
-              className="bg-card rounded-xl shadow-md border border-border p-6 hover:shadow-lg transition-shadow"
+              className="bg-card rounded-xl shadow-md border border-border hover:shadow-lg transition-all duration-300 overflow-hidden group flex flex-col"
             >
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
-                    <Building2 size={24} />
+              {/* Card Header */}
+              <div className="p-5 pb-4">
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center text-primary flex-shrink-0">
+                      <Building2 size={22} />
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="font-semibold text-foreground truncate leading-tight">
+                        {company.companyName}
+                      </h3>
+                      <div className="mt-1">
+                        <StatusBadge status={company.active ? 'active' : 'inactive'} />
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="font-semibold text-foreground text-lg">
-                      {company.companyName}
-                    </h3>
-                    <span className={company.active ? 'badge-success' : 'badge-warning'}>
-                      {company.active ? 'Active' : 'Inactive'}
-                    </span>
+                  {/* Action buttons top-right */}
+                  <div className="flex items-center gap-1 ml-2 flex-shrink-0">
+                    <button
+                      onClick={() => handleEdit(company)}
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                      title="Edit"
+                    >
+                      <Edit size={15} />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(company)}
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                      title="Delete"
+                    >
+                      <Trash2 size={15} />
+                    </button>
                   </div>
                 </div>
               </div>
 
-              <div className="space-y-3">
+              {/* Divider */}
+              <div className="h-px bg-border mx-5" />
+
+              {/* Card Body */}
+              <div className="p-5 pt-4 space-y-2.5 flex-1">
                 {company.email && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Mail size={16} />
+                  <div className="flex items-center gap-2.5 text-sm text-muted-foreground">
+                    <Mail size={14} className="flex-shrink-0 text-primary/60" />
                     <span className="truncate">{company.email}</span>
                   </div>
                 )}
                 {company.phone && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Phone size={16} />
+                  <div className="flex items-center gap-2.5 text-sm text-muted-foreground">
+                    <Phone size={14} className="flex-shrink-0 text-primary/60" />
                     <span>{company.phone}</span>
                   </div>
                 )}
                 {company.address && (
-                  <div className="flex items-start gap-2 text-sm text-muted-foreground">
-                    <MapPin size={16} className="mt-0.5 flex-shrink-0" />
+                  <div className="flex items-start gap-2.5 text-sm text-muted-foreground">
+                    <MapPin size={14} className="flex-shrink-0 mt-0.5 text-primary/60" />
                     <span className="line-clamp-2">{company.address}</span>
                   </div>
                 )}
                 {company.gstNumber && (
-                  <div className="text-sm text-muted-foreground">
-                    <span className="font-medium">GST:</span> {company.gstNumber}
+                  <div className="flex items-center gap-2.5 text-sm">
+                    <span className="text-xs font-medium bg-muted text-muted-foreground px-2 py-0.5 rounded">GST</span>
+                    <span className="text-muted-foreground font-mono text-xs">{company.gstNumber}</span>
                   </div>
                 )}
-              </div>
-
-              <div className="flex items-center gap-2 mt-4 pt-4 border-t border-border">
-                <button
-                  onClick={() => handleEdit(company)}
-                  className="flex-1 btn-secondary flex items-center justify-center gap-2"
-                >
-                  <Edit size={16} />
-                  Edit
-                </button>
-                <button
-                  onClick={() => handleDelete(company)}
-                  className="p-2 rounded-lg text-destructive hover:bg-destructive/10 transition-colors"
-                  title="Delete"
-                >
-                  <Trash2 size={18} />
-                </button>
               </div>
             </div>
           ))}
@@ -304,10 +328,10 @@ const CompanyManagement = () => {
                   onChange={(e) => {
                     const val = e.target.value.replace(/\D/g, '').slice(0, 10);
                     setFormData({ ...formData, phone: val });
-                    if (val.length === 10 && !PHONE_REGEX.test(val)) {
+                    if (val.length > 0 && val.length < 10) {
+                      setFormErrors(p => ({ ...p, phone: 'Phone number must be exactly 10 digits' }));
+                    } else if (val.length === 10 && !PHONE_REGEX.test(val)) {
                       setFormErrors(p => ({ ...p, phone: 'Must start with 6, 7, 8 or 9' }));
-                    } else if (val.length > 0 && val.length < 10) {
-                      setFormErrors(p => ({ ...p, phone: '' }));
                     } else {
                       setFormErrors(p => ({ ...p, phone: '' }));
                     }
@@ -331,7 +355,10 @@ const CompanyManagement = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-foreground mb-2">GST Number</label>
+                <label className="block text-sm font-medium text-foreground mb-2">
+                  GST Number
+                  <span className="ml-2 text-xs font-normal text-muted-foreground">(optional — 15 chars, e.g. 22AAAAA0000A1Z5)</span>
+                </label>
                 <input
                   type="text"
                   value={formData.gstNumber}
@@ -339,16 +366,23 @@ const CompanyManagement = () => {
                   onChange={(e) => {
                     const val = e.target.value.toUpperCase();
                     setFormData({ ...formData, gstNumber: val });
-                    if (val.length === 15 && !GST_REGEX.test(val)) {
+                    if (val.length === 0) {
+                      setFormErrors(p => ({ ...p, gstNumber: '' }));
+                    } else if (val.length === 15 && !GST_REGEX.test(val)) {
                       setFormErrors(p => ({ ...p, gstNumber: 'Invalid GST format (e.g. 22AAAAA0000A1Z5)' }));
                     } else {
                       setFormErrors(p => ({ ...p, gstNumber: '' }));
                     }
                   }}
-                  className={`input-field ${formErrors.gstNumber ? 'border-destructive' : ''}`}
+                  className={`input-field font-mono tracking-wider ${formErrors.gstNumber ? 'border-destructive' : ''}`}
                   placeholder="22AAAAA0000A1Z5"
                 />
-                {formErrors.gstNumber && <p className="text-xs text-destructive mt-1">{formErrors.gstNumber}</p>}
+                {formErrors.gstNumber
+                  ? <p className="text-xs text-destructive mt-1">{formErrors.gstNumber}</p>
+                  : formData.gstNumber.length > 0 && (
+                    <p className="text-xs text-muted-foreground mt-1">{formData.gstNumber.length}/15 characters</p>
+                  )
+                }
               </div>
 
               <div className="flex gap-3 pt-4">
@@ -368,38 +402,18 @@ const CompanyManagement = () => {
         </div>
       )}
       {/* Delete Confirmation Modal */}
-      {deletingCompany && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-card rounded-xl shadow-xl max-w-sm w-full p-6">
-            <div className="flex items-center gap-4 mb-4">
-              <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center flex-shrink-0">
-                <Trash2 size={22} className="text-destructive" />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold text-foreground">Delete Company</h3>
-                <p className="text-sm text-muted-foreground">This action cannot be undone</p>
-              </div>
-            </div>
-            <p className="text-sm text-foreground mb-6">
-              Are you sure you want to delete <span className="font-semibold">{deletingCompany.companyName}</span>? All users associated with this company will be affected.
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setDeletingCompany(null)}
-                className="flex-1 btn-secondary"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmDelete}
-                className="flex-1 bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-lg px-4 py-2 text-sm font-medium transition-colors"
-              >
-                Yes, Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <DeleteConfirmModal
+        isOpen={!!deletingCompany}
+        onClose={() => setDeletingCompany(null)}
+        onConfirm={confirmDelete}
+        title="Delete Company"
+        itemName={deletingCompany?.companyName}
+        message={
+          deletingCompany
+            ? `Are you sure you want to delete ${deletingCompany.companyName}? All users associated with this company will be affected.`
+            : undefined
+        }
+      />
     </div>
   );
 };

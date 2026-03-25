@@ -9,10 +9,14 @@ import autoTable from 'jspdf-autotable';
 import { DateRangePicker } from '@/components/common/DateRangePicker';
 import { ExportButton } from '@/components/common/ExportButton';
 import { exportToExcel, formatDateForExcel, formatCurrencyForExcel } from '@/utils/excelExport';
-import { History, Eye, Download, Edit, Trash2, X, Save } from 'lucide-react';
+import { History, Eye, Download, Edit, Trash2, X, Save, ChevronDown } from 'lucide-react';
 import api from '@/services/api';
 import { SearchBar } from '@/components/common/SearchBar';
 import { Pagination } from '@/components/common/Pagination';
+import { DeleteConfirmModal } from '@/components/common/DeleteConfirmModal';
+import { SortableHeader } from '@/components/common/SortableHeader';
+import { useSortable } from '@/hooks/useSortable';
+import { StatusBadge } from '@/components/common/StatusBadge';
 
 const ITEMS_PER_PAGE = 10;
 
@@ -27,6 +31,8 @@ const QuotationHistory = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [showStatusDropdown, setShowStatusDropdown] = useState(false);
 
   // Fetch notification settings on mount
   useEffect(() => {
@@ -91,9 +97,12 @@ const QuotationHistory = () => {
     return true;
   });
 
+  // Sorting
+  const { sortedData: sortedQuotations, sort, handleSort } = useSortable(filteredQuotations);
+
   // Pagination
-  const totalPages = Math.ceil(filteredQuotations.length / ITEMS_PER_PAGE);
-  const paginatedQuotations = filteredQuotations.slice(
+  const totalPages = Math.ceil(sortedQuotations.length / ITEMS_PER_PAGE);
+  const paginatedQuotations = sortedQuotations.slice(
     (currentPage - 1) * ITEMS_PER_PAGE,
     currentPage * ITEMS_PER_PAGE
   );
@@ -143,6 +152,7 @@ const QuotationHistory = () => {
     setEditingQuotation({ ...quotation });
     const options = getValidStatusOptions(quotation.status);
     setSelectedNewStatus(options.length > 0 ? options[0] : quotation.status);
+    setShowStatusDropdown(false);
   };
 
   const handleSaveEdit = async () => {
@@ -166,10 +176,7 @@ const QuotationHistory = () => {
   };
 
   const handleDelete = (id: string) => {
-    if (window.confirm('Are you sure you want to delete this quotation?')) {
-      deleteQuotation(id);
-      toast.success('Quotation deleted');
-    }
+    setDeletingId(id);
   };
 
   const generatePDF = (quotation: Quotation) => {
@@ -272,7 +279,7 @@ const QuotationHistory = () => {
             </div>
           </div>
           
-          <div className="flex items-center gap-4 flex-wrap">
+          <div className="flex items-center gap-3 flex-wrap">
             <SearchBar
               value={searchTerm}
               onChange={setSearchTerm}
@@ -303,11 +310,12 @@ const QuotationHistory = () => {
               </p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <div>
+              <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="table-header">
-                    <th className="px-6 py-4 text-left">ID</th>
+                    <SortableHeader label="ID" sortKey="id" sort={sort} onSort={handleSort} />
                     <th className="px-6 py-4 text-left">Client</th>
                     <th className="px-6 py-4 text-left">Items</th>
                     <th className="px-6 py-4 text-right">Total</th>
@@ -332,17 +340,7 @@ const QuotationHistory = () => {
                         ${quotation.grandTotal.toFixed(2)}
                       </td>
                       <td className="px-6 py-4">
-                        <span
-                          className={
-                            quotation.status === 'approved'
-                              ? 'badge-success'
-                              : quotation.status === 'rejected'
-                              ? 'badge-destructive'
-                              : 'badge-warning'
-                          }
-                        >
-                          {quotation.status}
-                        </span>
+                        <StatusBadge status={quotation.status} />
                       </td>
                       <td className="px-6 py-4 text-muted-foreground">
                         {quotation.createdAt}
@@ -376,8 +374,7 @@ const QuotationHistory = () => {
                             title="Delete"
                           >
                             <Trash2 size={16} className="text-destructive" />
-                          </button>
-                        </div>
+                          </button>                        </div>
                       </td>
                     </tr>
                   ))}
@@ -387,10 +384,11 @@ const QuotationHistory = () => {
             <Pagination
               currentPage={currentPage}
               totalPages={totalPages}
-              totalItems={filteredQuotations.length}
+              totalItems={sortedQuotations.length}
               itemsPerPage={ITEMS_PER_PAGE}
               onPageChange={setCurrentPage}
             />
+            </div>
           )}
         </div>
       </div>
@@ -422,9 +420,7 @@ const QuotationHistory = () => {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Status</p>
-                  <span className={viewingQuotation.status === 'approved' ? 'badge-success' : 'badge-warning'}>
-                    {viewingQuotation.status}
-                  </span>
+                  <StatusBadge status={viewingQuotation.status} />
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Grand Total</p>
@@ -473,19 +469,34 @@ const QuotationHistory = () => {
                 <label className="block text-sm font-medium text-foreground mb-2">Status</label>
                 <div className="space-y-2">
                   <div className="p-3 bg-muted rounded-lg">
-                    <p className="text-sm font-medium text-foreground">Current Status: <span className="capitalize font-bold text-primary">{editingQuotation.status}</span></p>
+                    <p className="text-sm font-medium text-foreground">Current Status: <StatusBadge status={editingQuotation.status} /></p>
                   </div>
                   
                   {getValidStatusOptions(editingQuotation.status).length > 0 ? (
-                    <select
-                      value={selectedNewStatus}
-                      onChange={(e) => setSelectedNewStatus(e.target.value)}
-                      className="input-field"
-                    >
-                      {getValidStatusOptions(editingQuotation.status).map((status) => (
-                        <option key={status} value={status}>{status}</option>
-                      ))}
-                    </select>
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setShowStatusDropdown(p => !p)}
+                        className="input-field w-full flex items-center justify-between text-left capitalize"
+                      >
+                        <span>{selectedNewStatus.charAt(0).toUpperCase() + selectedNewStatus.slice(1)}</span>
+                        <ChevronDown size={16} className={`text-muted-foreground transition-transform ${showStatusDropdown ? 'rotate-180' : ''}`} />
+                      </button>
+                      {showStatusDropdown && (
+                        <div className="absolute z-10 mt-1 w-full bg-card border border-border rounded-lg shadow-lg overflow-hidden">
+                          {getValidStatusOptions(editingQuotation.status).map((status) => (
+                            <button
+                              key={status}
+                              type="button"
+                              onClick={() => { setSelectedNewStatus(status); setShowStatusDropdown(false); }}
+                              className={`w-full text-left px-4 py-2.5 text-sm capitalize transition-colors hover:bg-muted ${selectedNewStatus === status ? 'bg-primary/10 text-primary font-medium' : 'text-foreground'}`}
+                            >
+                              {status.charAt(0).toUpperCase() + status.slice(1)}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   ) : (
                     <div className="p-3 bg-destructive/10 rounded-lg border border-destructive/20">
                       <p className="text-sm text-destructive font-medium">This status cannot be changed</p>
@@ -518,6 +529,20 @@ const QuotationHistory = () => {
           </div>
         </div>
       )}
+      {/* Delete Confirmation Modal */}
+      <DeleteConfirmModal
+        isOpen={!!deletingId}
+        onClose={() => setDeletingId(null)}
+        onConfirm={() => {
+          if (deletingId) {
+            deleteQuotation(deletingId);
+            toast.success('Quotation deleted');
+            setDeletingId(null);
+          }
+        }}
+        title="Delete Quotation"
+        itemName={deletingId ? `Quotation #${deletingId}` : undefined}
+      />
     </div>
   );
 };

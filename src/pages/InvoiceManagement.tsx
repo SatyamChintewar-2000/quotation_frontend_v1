@@ -19,6 +19,10 @@ import {
 import { Link } from 'react-router-dom';
 import { SearchBar } from '@/components/common/SearchBar';
 import { Pagination } from '@/components/common/Pagination';
+import { DeleteConfirmModal } from '@/components/common/DeleteConfirmModal';
+import { SortableHeader } from '@/components/common/SortableHeader';
+import { useSortable } from '@/hooks/useSortable';
+import { StatusBadge } from '@/components/common/StatusBadge';
 
 const ITEMS_PER_PAGE = 10;
 
@@ -28,6 +32,7 @@ const InvoiceManagement = () => {
   const [paymentStatusFilter, setPaymentStatusFilter] = useState<string>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [deletingInvoiceId, setDeletingInvoiceId] = useState<number | null>(null);
 
   React.useEffect(() => { setCurrentPage(1); }, [searchTerm, statusFilter, paymentStatusFilter]);
 
@@ -46,40 +51,20 @@ const InvoiceManagement = () => {
   }, [invoices, statusFilter, paymentStatusFilter, searchTerm]);
 
   const totalPages = Math.ceil(filteredInvoices.length / ITEMS_PER_PAGE);
-  const paginatedInvoices = filteredInvoices.slice(
+  const { sortedData: sortedInvoices, sort, handleSort } = useSortable(filteredInvoices);
+  const paginatedInvoices = sortedInvoices.slice(
     (currentPage - 1) * ITEMS_PER_PAGE,
     currentPage * ITEMS_PER_PAGE
   );
 
-  const handleDelete = async (id: number | undefined) => {
+  const handleDelete = (id: number | undefined) => {
     if (!id) return;
-    if (window.confirm('Are you sure you want to delete this invoice?')) {
-      await deleteInvoice(id);
-    }
+    setDeletingInvoiceId(id);
   };
 
   const handleSend = async (id: number | undefined) => {
     if (!id) return;
     await markAsSent(id);
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'DRAFT':
-        return 'bg-gray-100 text-gray-800';
-      case 'SENT':
-        return 'bg-blue-100 text-blue-800';
-      case 'PAID':
-        return 'bg-green-100 text-green-800';
-      case 'PARTIAL':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'OVERDUE':
-        return 'bg-red-100 text-red-800';
-      case 'CANCELLED':
-        return 'bg-gray-300 text-gray-700';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
   };
 
   const getPaymentStatusIcon = (status: string) => {
@@ -221,7 +206,7 @@ const InvoiceManagement = () => {
                 <table className="w-full">
                   <thead>
                     <tr className="table-header">
-                      <th className="px-6 py-4 text-left">Invoice #</th>
+                      <SortableHeader label="Invoice #" sortKey="invoiceNumber" sort={sort} onSort={handleSort} />
                       <th className="px-6 py-4 text-left">Customer</th>
                       <th className="px-6 py-4 text-left">Amount</th>
                       <th className="px-6 py-4 text-left">Status</th>
@@ -243,14 +228,12 @@ const InvoiceManagement = () => {
                           <span className="font-semibold text-foreground">{formatCurrency(invoice.totalAmount)}</span>
                         </td>
                         <td className="px-6 py-4">
-                          <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(invoice.status)}`}>
-                            {invoice.status}
-                          </span>
+                          <StatusBadge status={invoice.status} />
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-2">
                             {getPaymentStatusIcon(invoice.paymentStatus)}
-                            <span className="text-sm text-foreground">{invoice.paymentStatus}</span>
+                            <StatusBadge status={invoice.paymentStatus} />
                           </div>
                         </td>
                         <td className="px-6 py-4">
@@ -279,7 +262,7 @@ const InvoiceManagement = () => {
               <Pagination
                 currentPage={currentPage}
                 totalPages={totalPages}
-                totalItems={filteredInvoices.length}
+                totalItems={sortedInvoices.length}
                 itemsPerPage={ITEMS_PER_PAGE}
                 onPageChange={setCurrentPage}
               />
@@ -287,6 +270,14 @@ const InvoiceManagement = () => {
           )}
         </div>
       </div>
+      {/* Delete Confirmation Modal */}
+      <DeleteConfirmModal
+        isOpen={!!deletingInvoiceId}
+        onClose={() => setDeletingInvoiceId(null)}
+        onConfirm={async () => { if (deletingInvoiceId) await deleteInvoice(deletingInvoiceId); }}
+        title="Delete Invoice"
+        message="Are you sure you want to delete this invoice? This action cannot be undone."
+      />
     </div>
   );
 };

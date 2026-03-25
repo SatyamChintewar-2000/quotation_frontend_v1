@@ -5,6 +5,10 @@ import { userService, UserDTO, UserRequest, RoleDTO } from '@/services/userServi
 import { companyService, Company } from '@/services/companyService';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
+import { DeleteConfirmModal } from '@/components/common/DeleteConfirmModal';
+import { SortableHeader } from '@/components/common/SortableHeader';
+import { useSortable } from '@/hooks/useSortable';
+import { StatusBadge } from '@/components/common/StatusBadge';
 
 const PHONE_REGEX = /^[6-9][0-9]{9}$/;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -27,6 +31,7 @@ const UserManagement = () => {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingUser, setEditingUser] = useState<UserDTO | null>(null);
+  const [deletingUser, setDeletingUser] = useState<UserDTO | null>(null);
   const [formErrors, setFormErrors] = useState<FormErrors>({});
   const [formData, setFormData] = useState<UserRequest>({
     name: '',
@@ -158,11 +163,14 @@ const UserManagement = () => {
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm('Are you sure you want to delete this user?')) return;
-    
+  const handleDelete = (user: UserDTO) => {
+    setDeletingUser(user);
+  };
+
+  const confirmDelete = async () => {
+    if (!deletingUser) return;
     try {
-      await userService.delete(id);
+      await userService.delete(deletingUser.id);
       toast.success('User deleted successfully');
       fetchData();
     } catch (error) {
@@ -229,6 +237,8 @@ const UserManagement = () => {
   const filteredUsers = selectedCompanyId
     ? users.filter(u => u.companyId === selectedCompanyId)
     : users;
+
+  const { sortedData: sortedUsers, sort, handleSort } = useSortable(filteredUsers);
 
   if (loading) {
     return (
@@ -303,7 +313,7 @@ const UserManagement = () => {
             <table className="w-full">
               <thead>
                 <tr className="table-header">
-                  <th className="px-6 py-4 text-left">Name</th>
+                  <SortableHeader label="Name" sortKey="name" sort={sort} onSort={handleSort} />
                   <th className="px-6 py-4 text-left">Email</th>
                   <th className="px-6 py-4 text-left">Role</th>
                   {isSuperAdmin && <th className="px-6 py-4 text-left">Company</th>}
@@ -314,7 +324,7 @@ const UserManagement = () => {
                 </tr>
               </thead>
               <tbody>
-                {filteredUsers.map((user) => (
+                {sortedUsers.map((user) => (
                   <tr key={user.id} className="table-row">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
@@ -364,9 +374,7 @@ const UserManagement = () => {
                       )}
                     </td>
                     <td className="px-6 py-4">
-                      <span className={user.active ? 'badge-success' : 'badge-warning'}>
-                        {user.active ? 'Active' : 'Inactive'}
-                      </span>
+                      <StatusBadge status={user.active ? 'active' : 'inactive'} />
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center justify-end gap-2">
@@ -383,6 +391,13 @@ const UserManagement = () => {
                           title={user.active ? 'Deactivate' : 'Activate'}
                         >
                           {user.active ? <ToggleRight size={22} /> : <ToggleLeft size={22} />}
+                        </button>
+                        <button
+                          onClick={() => handleDelete(user)}
+                          className="p-2 rounded-lg text-destructive hover:bg-destructive/10 transition-colors"
+                          title="Delete"
+                        >
+                          <Trash2 size={18} />
                         </button>
                       </div>
                     </td>
@@ -529,6 +544,14 @@ const UserManagement = () => {
           </div>
         </div>
       )}
+      {/* Delete Confirmation Modal */}
+      <DeleteConfirmModal
+        isOpen={!!deletingUser}
+        onClose={() => setDeletingUser(null)}
+        onConfirm={confirmDelete}
+        title="Delete User"
+        itemName={deletingUser?.name}
+      />
     </div>
   );
 };
