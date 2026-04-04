@@ -3,6 +3,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useQuotations } from '@/contexts/QuotationContext';
 import { TopBar } from '@/components/layout/TopBar';
 import { customerService } from '@/services/customerService';
+import { enquiryService, Enquiry } from '@/services/enquiryService';
 import { DateRangePicker } from '@/components/common/DateRangePicker';
 import { SortableHeader } from '@/components/common/SortableHeader';
 import { useSortable } from '@/hooks/useSortable';
@@ -13,13 +14,15 @@ import {
   Users,
   Package,
   ArrowUpRight,
-  ArrowDownRight,
+  ClipboardList,
+  CalendarClock,
 } from 'lucide-react';
 
 const Dashboard = () => {
   const { user } = useAuth();
   const { quotations = [] } = useQuotations();
   const [clientsCount, setClientsCount] = useState(0);
+  const [enquiries, setEnquiries] = useState<Enquiry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [fromDate, setFromDate] = useState('');
@@ -35,12 +38,15 @@ const Dashboard = () => {
         setFromDate(today);
         setToDate(today);
 
-        const customers = await customerService.getAll();
+        const [customers, enqs] = await Promise.all([
+          customerService.getAll(),
+          enquiryService.getAll(),
+        ]);
         setClientsCount(customers.length);
+        setEnquiries(enqs);
       } catch (error) {
         console.error('Failed to fetch dashboard data:', error);
         setError('Failed to load dashboard data');
-        setClientsCount(0);
       } finally {
         setIsLoading(false);
       }
@@ -49,69 +55,81 @@ const Dashboard = () => {
     fetchDashboardData();
   }, []);
 
-  // Filter data based on user role
   const isSuperAdmin = user?.role === 'superadmin';
+  const isAdmin = user?.role === 'admin';
 
-  const userQuotations = isSuperAdmin
+  // Staff sees only their own; admin/superadmin sees all in context (API already filters by role)
+  const userQuotations = (isSuperAdmin || isAdmin)
     ? quotations
     : quotations.filter(q => q.createdBy === user?.id);
 
-  // Filter quotations by date range
-  const filteredQuotations = userQuotations.filter((quotation) => {
-    if (!fromDate && !toDate) return true;
-
-    // Parse quotation date and strip time component
-    const quotationDate = new Date(quotation.createdAt);
-    quotationDate.setHours(0, 0, 0, 0);
-
-    // Parse filter dates and strip time component
+  // Helper: check if a date string falls within the selected range
+  const inRange = (dateStr: string) => {
+    const d = new Date(dateStr);
+    d.setHours(0, 0, 0, 0);
     const from = fromDate ? new Date(fromDate) : null;
     if (from) from.setHours(0, 0, 0, 0);
-
     const to = toDate ? new Date(toDate) : null;
-    if (to) to.setHours(23, 59, 59, 999); // End of day
-
-    // Compare dates
-    if (from && quotationDate < from) return false;
-    if (to && quotationDate > to) return false;
-
+    if (to) to.setHours(23, 59, 59, 999);
+    if (from && d < from) return false;
+    if (to && d > to) return false;
     return true;
-  });
+  };
 
-  // Calculate filtered revenue — sum of ALL quotations in range (not just approved)
-  const filteredRevenue = filteredQuotations.reduce((sum, q) => sum + q.grandTotal, 0);
+  // Filter quotations by date range
+  const filteredQuotations = userQuotations.filter((q) =>
+    !fromDate && !toDate ? true : inRange(q.createdAt)
+  );
 
-  // Filtered enquiries — unique clients who have quotations in the date range
-  const filteredEnquiries = new Set(filteredQuotations.map(q => q.clientName)).size;
+  // Today's Enquiries — enquiries whose enquiryDate falls in the selected range
+  const filteredEnquiries = enquiries.filter((e) =>
+    !fromDate && !toDate ? true : inRange(e.enquiryDate)
+  );
 
-  // Determine label based on date filter
+  // Today's Follow-ups — enquiries whose nextFollowupDate falls in the selected range
+  const filteredFollowups = enquiries.filter((e) =>
+    e.nextFollowupDate && (!fromDate && !toDate ? true : inRange(e.nextFollowupDate))
+  );
+
+  // Today's Sales — quotations with status approved/sent in range
+  const filteredSales = filteredQuotations.filter((q) =>
+    ['approved', 'sent', 'generated'].includes(q.status?.toLowerCase() || '')
+  );
+
+  // Revenue from filtered sales
+  const filteredRevenue = filteredSales.reduce((sum, q) => sum + q.grandTotal, 0);
+
   const isToday = fromDate === toDate && fromDate === new Date().toISOString().split('T')[0];
   const dateLabel = isToday ? "Today's" : "Filtered";
 
   const stats = [
     {
-      label: `${dateLabel} Sales`,
+      label: `${dateLabel} Enquiries`,
+      value: filteredEnquiries.length,
+      sub: 'New leads added',
+      icon: ClipboardList,
+      color: 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400',
+    },
+    {
+      label: `${dateLabel} Quotations`,
       value: filteredQuotations.length,
-      change: '+12%',
-      positive: true,
+      sub: 'Quotations created',
       icon: FileText,
       color: 'bg-primary/10 text-primary',
     },
     {
-      label: `${dateLabel} Enquiries`,
-      value: filteredEnquiries,
-      change: '+8%',
-      positive: true,
-      icon: Users,
-      color: 'bg-success/10 text-success',
+      label: `${dateLabel} Follow-ups`,
+      value: filteredFollowups.length,
+      sub: 'Scheduled follow-ups',
+      icon: CalendarClock,
+      color: 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400',
     },
     {
-      label: `${dateLabel} Revenue`,
-      value: `₹${filteredRevenue.toFixed(2)}`,
-      change: filteredRevenue > 0 ? '+15%' : '0%',
-      positive: filteredRevenue > 0,
+      label: `${dateLabel} Sales`,
+      value: filteredSales.length,
+      sub: `₹${filteredRevenue.toLocaleString('en-IN')} revenue`,
       icon: TrendingUp,
-      color: 'bg-accent/10 text-accent',
+      color: 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400',
     },
   ];
 
@@ -158,7 +176,7 @@ const Dashboard = () => {
                 Welcome back, {user?.name}! 👋
               </h2>
               <p className="text-primary-foreground/80">
-                {isSuperAdmin
+                {(isSuperAdmin || isAdmin)
                   ? "Here's today's business summary."
                   : "Here's your today's business overview."}
               </p>
@@ -188,20 +206,10 @@ const Dashboard = () => {
                 <div className={`p-3 rounded-xl ${stat.color}`}>
                   <stat.icon size={24} />
                 </div>
-                <div
-                  className={`flex items-center gap-1 text-sm font-medium ${stat.positive ? 'text-success' : 'text-destructive'
-                    }`}
-                >
-                  {stat.positive ? (
-                    <ArrowUpRight size={16} />
-                  ) : (
-                    <ArrowDownRight size={16} />
-                  )}
-                  {stat.change}
-                </div>
               </div>
-              <p className="text-2xl font-bold text-foreground">{stat.value}</p>
-              <p className="text-sm text-muted-foreground mt-1">{stat.label}</p>
+              <p className="text-3xl font-bold text-foreground">{stat.value}</p>
+              <p className="text-sm font-medium text-foreground mt-1">{stat.label}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{stat.sub}</p>
             </div>
           ))}
         </div>
@@ -210,7 +218,7 @@ const Dashboard = () => {
         <div className="bg-card rounded-xl shadow-md border border-border">
           <div className="p-6 border-b border-border">
             <h3 className="text-lg font-semibold text-foreground">
-              {isSuperAdmin ? "Today's Quotations" : "My Today's Quotations"}
+              {(isSuperAdmin || isAdmin) ? "Today's Quotations" : "My Today's Quotations"}
             </h3>
           </div>
           {recentQuotations.length === 0 ? (

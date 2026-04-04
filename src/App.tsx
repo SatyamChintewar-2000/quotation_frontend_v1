@@ -16,6 +16,7 @@ import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
 import ProductManagement from "@/pages/ProductManagement";
 import CustomerManagement from "@/pages/CustomerManagement";
+import EnquiryManagement from "@/pages/EnquiryManagement";
 import NewQuotation from "@/pages/NewQuotation";
 import QuotationHistory from "@/pages/QuotationHistory";
 import InvoiceManagement from "@/pages/InvoiceManagement";
@@ -81,6 +82,14 @@ const App = () => (
                     element={
                       <ProtectedRoute requiredPermission="add_product">
                         <ProductManagement />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/enquiries"
+                    element={
+                      <ProtectedRoute requiredPermission="enquiry_management">
+                        <EnquiryManagement />
                       </ProtectedRoute>
                     }
                   />

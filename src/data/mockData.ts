@@ -54,7 +54,7 @@ export interface Quotation {
   totalGst: number;
   grandTotal: number;
   createdAt: string;
-  status: 'draft' | 'sent' | 'accepted' | 'rejected';
+  status: 'draft' | 'generated' | 'sent' | 'approved' | 'rejected';
   createdBy: string;
 }
 
@@ -66,6 +66,7 @@ export const menuPermissions: Record<string, string[]> = {
     'company_master',
     'sms_template',
     'add_product',
+    'enquiry_management',
     'client_details',
     'new_quotation',
     'quotation_history',
@@ -75,12 +76,13 @@ export const menuPermissions: Record<string, string[]> = {
     'user_management',
     'color_theme',
   ],
-  superadmin: [  // Backend returns this format (no underscore)
+  superadmin: [
     'dashboard',
     'master_settings',
     'company_master',
     'sms_template',
     'add_product',
+    'enquiry_management',
     'client_details',
     'new_quotation',
     'quotation_history',
@@ -90,35 +92,48 @@ export const menuPermissions: Record<string, string[]> = {
     'user_management',
     'color_theme',
   ],
-  admin: [
+  // CLIENT = company owner — sees everything except company_master
+  client: [
     'dashboard',
+    'master_settings',
+    'sms_template',
     'add_product',
+    'enquiry_management',
     'client_details',
     'new_quotation',
     'quotation_history',
     'new_invoice',
     'invoice_management',
-    'color_theme',
-  ],
-  client: [  // CLIENT can manage products, customers, quotations, invoices and users
-    'dashboard',
-    'add_product',
-    'client_details',
-    'new_quotation',
-    'quotation_history',
-    'new_invoice',
-    'invoice_management',
+    'reports',
     'user_management',
     'color_theme',
   ],
-  staff: [  // STAFF can manage products, customers, quotations and invoices
+  // STAFF = employee — no user management, no master settings
+  staff: [
     'dashboard',
     'add_product',
+    'enquiry_management',
     'client_details',
     'new_quotation',
     'quotation_history',
     'new_invoice',
     'invoice_management',
+    'color_theme',
+  ],
+  // Keep admin as alias for client (legacy)
+  admin: [
+    'dashboard',
+    'master_settings',
+    'sms_template',
+    'add_product',
+    'enquiry_management',
+    'client_details',
+    'new_quotation',
+    'quotation_history',
+    'new_invoice',
+    'invoice_management',
+    'reports',
+    'user_management',
     'color_theme',
   ],
 };

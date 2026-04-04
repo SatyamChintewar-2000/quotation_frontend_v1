@@ -31,14 +31,22 @@ const colorMap: Record<string, string> = {
   pending:   'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400',
 
   // User / Company
-  active:    'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400',
-  inactive:  'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-400',
+  active:      'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400',
+  inactive:    'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-400',
+
+  // Enquiry statuses
+  open:        'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400',
+  in_progress: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400',
+  converted:   'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400',
+  closed:      'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-400',
 };
 
 export const StatusBadge: React.FC<StatusBadgeProps> = ({ status }) => {
   const key = status.toLowerCase();
   const classes = colorMap[key] ?? 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400';
-  const label = status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
+  const label = key === 'in_progress'
+    ? 'In Progress'
+    : status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
 
   return (
     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${classes}`}>

@@ -42,4 +42,9 @@ export const companyService = {
   async delete(id: number): Promise<void> {
     await api.delete(`/api/companies/${id}`);
   },
+
+  async toggleActive(id: number): Promise<Company> {
+    const response = await api.put(`/api/companies/${id}/toggle-active`);
+    return response.data;
+  },
 };

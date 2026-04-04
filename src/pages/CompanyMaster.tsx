@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { TopBar } from '@/components/layout/TopBar';
-import { Plus, Edit, Trash2, Building2, Mail, Phone, MapPin } from 'lucide-react';
+import { Plus, Edit, Trash2, Building2, Mail, Phone, MapPin, ToggleLeft, ToggleRight } from 'lucide-react';
 import { companyService, Company } from '@/services/companyService';
+import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 import { DeleteConfirmModal } from '@/components/common/DeleteConfirmModal';
 import { StatusBadge } from '@/components/common/StatusBadge';
@@ -26,6 +27,8 @@ interface FormErrors {
 }
 
 const CompanyManagement = () => {
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === 'superadmin' || user?.role === 'super_admin';
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -130,6 +133,16 @@ const CompanyManagement = () => {
       setDeletingCompany(null);
     }
   };
+  const handleToggleActive = async (company: Company) => {
+    try {
+      await companyService.toggleActive(company.id);
+      toast.success(`Company ${company.active ? 'deactivated' : 'activated'} successfully`);
+      fetchCompanies();
+    } catch {
+      toast.error('Failed to update company status');
+    }
+  };
+
   const handleEdit = (company: Company) => {
     setEditingCompany(company);
     const data = {
@@ -222,6 +235,19 @@ const CompanyManagement = () => {
                     >
                       <Edit size={15} />
                     </button>
+                    {isSuperAdmin && (
+                      <button
+                        onClick={() => handleToggleActive(company)}
+                        className={`p-1.5 rounded-lg transition-colors ${
+                          company.active
+                            ? 'text-green-600 hover:bg-green-50'
+                            : 'text-muted-foreground hover:bg-muted'
+                        }`}
+                        title={company.active ? 'Deactivate company' : 'Activate company'}
+                      >
+                        {company.active ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
+                      </button>
+                    )}
                     <button
                       onClick={() => handleDelete(company)}
                       className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
