@@ -7,6 +7,10 @@ export interface Company {
   phone?: string;
   email?: string;
   gstNumber?: string;
+  state?: string;
+  city?: string;
+  termsAndConditions?: string;
+  logo?: string;
   active?: boolean;
 }
 
@@ -16,6 +20,10 @@ export interface CompanyRequest {
   phone?: string;
   email?: string;
   gstNumber?: string;
+  state?: string;
+  city?: string;
+  termsAndConditions?: string;
+  logo?: string;
 }
 
 export const companyService = {
@@ -41,5 +49,20 @@ export const companyService = {
 
   async delete(id: number): Promise<void> {
     await api.delete(`/api/companies/${id}`);
+  },
+
+  async toggleActive(id: number): Promise<Company> {
+    const response = await api.put(`/api/companies/${id}/toggle-active`);
+    return response.data;
+  },
+
+  async getMyCompany(): Promise<Company> {
+    const response = await api.get('/api/companies/my-company');
+    return response.data;
+  },
+
+  async updateMyCompany(data: Partial<CompanyRequest>): Promise<Company> {
+    const response = await api.put('/api/companies/my-company', data);
+    return response.data;
   },
 };

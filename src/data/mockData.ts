@@ -54,72 +54,42 @@ export interface Quotation {
   totalGst: number;
   grandTotal: number;
   createdAt: string;
-  status: 'draft' | 'sent' | 'accepted' | 'rejected';
+  status: 'draft' | 'generated' | 'sent' | 'approved' | 'rejected';
   createdBy: string;
 }
 
 // Menu permissions for role-based access control
 export const menuPermissions: Record<string, string[]> = {
   super_admin: [
-    'dashboard',
-    'master_settings',
-    'company_master',
-    'sms_template',
-    'add_product',
-    'client_details',
-    'new_quotation',
-    'quotation_history',
-    'new_invoice',
-    'invoice_management',
-    'reports',
-    'user_management',
-    'color_theme',
+    'dashboard', 'master_settings', 'company_master', 'sms_template',
+    'add_product', 'enquiry_management', 'client_details',
+    'new_quotation', 'quotation_history', 'new_invoice',
+    'invoice_management', 'reports', 'user_management',
   ],
-  superadmin: [  // Backend returns this format (no underscore)
-    'dashboard',
-    'master_settings',
-    'company_master',
-    'sms_template',
-    'add_product',
-    'client_details',
-    'new_quotation',
-    'quotation_history',
-    'new_invoice',
-    'invoice_management',
-    'reports',
-    'user_management',
-    'color_theme',
+  superadmin: [
+    'dashboard', 'master_settings', 'company_master', 'sms_template',
+    'add_product', 'enquiry_management', 'client_details',
+    'new_quotation', 'quotation_history', 'new_invoice',
+    'invoice_management', 'reports', 'user_management',
   ],
+  // CLIENT = company owner — sees everything except company_master
+  client: [
+    'dashboard', 'master_settings', 'sms_template',
+    'add_product', 'enquiry_management', 'client_details',
+    'new_quotation', 'quotation_history', 'new_invoice',
+    'invoice_management', 'reports', 'user_management',
+  ],
+  // STAFF = employee — limited access
+  staff: [
+    'dashboard', 'master_settings', 'add_product', 'enquiry_management', 'client_details',
+    'new_quotation', 'quotation_history', 'new_invoice', 'invoice_management',
+  ],
+  // admin = alias for client
   admin: [
-    'dashboard',
-    'add_product',
-    'client_details',
-    'new_quotation',
-    'quotation_history',
-    'new_invoice',
-    'invoice_management',
-    'color_theme',
-  ],
-  client: [  // CLIENT can manage products, customers, quotations, invoices and users
-    'dashboard',
-    'add_product',
-    'client_details',
-    'new_quotation',
-    'quotation_history',
-    'new_invoice',
-    'invoice_management',
-    'user_management',
-    'color_theme',
-  ],
-  staff: [  // STAFF can manage products, customers, quotations and invoices
-    'dashboard',
-    'add_product',
-    'client_details',
-    'new_quotation',
-    'quotation_history',
-    'new_invoice',
-    'invoice_management',
-    'color_theme',
+    'dashboard', 'master_settings', 'sms_template',
+    'add_product', 'enquiry_management', 'client_details',
+    'new_quotation', 'quotation_history', 'new_invoice',
+    'invoice_management', 'reports', 'user_management',
   ],
 };
 

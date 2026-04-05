@@ -2,19 +2,11 @@ import React, { useState, useMemo } from 'react';
 import { TopBar } from '@/components/layout/TopBar';
 import { useInvoices } from '@/contexts/InvoiceContext';
 import { Invoice } from '@/services/invoiceService';
+import invoiceService from '@/services/invoiceService';
 import { toast } from 'sonner';
 import {
-  FileText,
-  Eye,
-  Trash2,
-  Plus,
-  Filter,
-  Download,
-  Send,
-  CheckCircle,
-  Clock,
-  AlertCircle,
-  DollarSign,
+  FileText, Eye, Trash2, Plus, Download, Send,
+  CheckCircle, Clock, AlertCircle, IndianRupee, X,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { SearchBar } from '@/components/common/SearchBar';
@@ -33,6 +25,9 @@ const InvoiceManagement = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [deletingInvoiceId, setDeletingInvoiceId] = useState<number | null>(null);
+  const [paymentInvoice, setPaymentInvoice] = useState<Invoice | null>(null);
+  const [paymentForm, setPaymentForm] = useState({ paymentDate: new Date().toISOString().split('T')[0], paymentAmount: '', paymentMethod: 'CASH', paymentReference: '', notes: '' });
+  const [paymentSaving, setPaymentSaving] = useState(false);
 
   React.useEffect(() => { setCurrentPage(1); }, [searchTerm, statusFilter, paymentStatusFilter]);
 
@@ -65,6 +60,31 @@ const InvoiceManagement = () => {
   const handleSend = async (id: number | undefined) => {
     if (!id) return;
     await markAsSent(id);
+  };
+
+  const handleRecordPayment = async () => {
+    if (!paymentInvoice?.id) return;
+    const amount = parseFloat(paymentForm.paymentAmount);
+    if (!amount || amount <= 0) { toast.error('Enter a valid payment amount'); return; }
+    try {
+      setPaymentSaving(true);
+      await invoiceService.recordPayment(paymentInvoice.id, {
+        paymentDate: paymentForm.paymentDate,
+        paymentAmount: amount,
+        paymentMethod: paymentForm.paymentMethod,
+        paymentReference: paymentForm.paymentReference,
+        notes: paymentForm.notes,
+      });
+      toast.success('Payment recorded successfully');
+      setPaymentInvoice(null);
+      setPaymentForm({ paymentDate: new Date().toISOString().split('T')[0], paymentAmount: '', paymentMethod: 'CASH', paymentReference: '', notes: '' });
+      // Refresh invoices
+      window.location.reload();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Failed to record payment');
+    } finally {
+      setPaymentSaving(false);
+    }
   };
 
   const getPaymentStatusIcon = (status: string) => {
@@ -249,6 +269,15 @@ const InvoiceManagement = () => {
                                 <Send className="w-4 h-4 text-muted-foreground" />
                               </button>
                             )}
+                            {invoice.paymentStatus !== 'PAID' && (
+                              <button
+                                onClick={() => setPaymentInvoice(invoice)}
+                                className="p-2 rounded-lg hover:bg-green-50 transition-colors"
+                                title="Record Payment"
+                              >
+                                <IndianRupee className="w-4 h-4 text-green-600" />
+                              </button>
+                            )}
                             <button onClick={() => handleDelete(invoice.id)} className="p-2 rounded-lg hover:bg-destructive/10 transition-colors" title="Delete">
                               <Trash2 className="w-4 h-4 text-destructive" />
                             </button>
@@ -278,6 +307,104 @@ const InvoiceManagement = () => {
         title="Delete Invoice"
         message="Are you sure you want to delete this invoice? This action cannot be undone."
       />
+
+      {/* Record Payment Modal */}
+      {paymentInvoice && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-card rounded-xl shadow-xl w-full max-w-md">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+              <div>
+                <h3 className="font-semibold text-foreground">Record Payment</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">{paymentInvoice.invoiceNumber} · {paymentInvoice.customerName}</p>
+              </div>
+              <button onClick={() => setPaymentInvoice(null)} className="p-1.5 rounded-lg hover:bg-muted transition-colors text-muted-foreground">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              {/* Outstanding amount */}
+              <div className="bg-muted/30 rounded-xl p-4 flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Invoice Total</span>
+                <span className="font-bold text-foreground text-lg">
+                  {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(paymentInvoice.totalAmount)}
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1.5">Payment Amount (₹) *</label>
+                <input
+                  type="number"
+                  value={paymentForm.paymentAmount}
+                  onChange={(e) => setPaymentForm((p) => ({ ...p, paymentAmount: e.target.value }))}
+                  placeholder="0.00"
+                  min="0"
+                  step="0.01"
+                  className="input-field"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1.5">Payment Date *</label>
+                <input
+                  type="date"
+                  value={paymentForm.paymentDate}
+                  onChange={(e) => setPaymentForm((p) => ({ ...p, paymentDate: e.target.value }))}
+                  className="input-field"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1.5">Payment Method</label>
+                <select
+                  value={paymentForm.paymentMethod}
+                  onChange={(e) => setPaymentForm((p) => ({ ...p, paymentMethod: e.target.value }))}
+                  className="input-field"
+                >
+                  <option value="CASH">Cash</option>
+                  <option value="BANK_TRANSFER">Bank Transfer</option>
+                  <option value="UPI">UPI</option>
+                  <option value="CHEQUE">Cheque</option>
+                  <option value="CARD">Card</option>
+                  <option value="OTHER">Other</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1.5">Reference / Transaction ID</label>
+                <input
+                  type="text"
+                  value={paymentForm.paymentReference}
+                  onChange={(e) => setPaymentForm((p) => ({ ...p, paymentReference: e.target.value }))}
+                  placeholder="UTR / Cheque no. / Transaction ID"
+                  className="input-field"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1.5">Notes</label>
+                <textarea
+                  value={paymentForm.notes}
+                  onChange={(e) => setPaymentForm((p) => ({ ...p, notes: e.target.value }))}
+                  rows={2}
+                  placeholder="Optional notes..."
+                  className="input-field resize-none"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button onClick={() => setPaymentInvoice(null)} className="flex-1 btn-secondary">Cancel</button>
+                <button
+                  onClick={handleRecordPayment}
+                  disabled={paymentSaving}
+                  className="flex-1 btn-primary flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {paymentSaving ? 'Saving...' : <><IndianRupee size={15} /> Record Payment</>}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

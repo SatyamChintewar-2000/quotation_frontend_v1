@@ -23,7 +23,7 @@ interface Quotation {
   totalGst: number;
   grandTotal: number;
   createdAt: string;
-  status: 'draft' | 'generated' | 'sent' | 'approved' | 'rejected';
+  status: string;
   createdBy: string;
 }
 
@@ -31,7 +31,7 @@ interface QuotationContextType {
   quotations: Quotation[];
   loading: boolean;
   addQuotation: (quotation: Omit<Quotation, 'id'>) => Promise<string>;
-  updateQuotation: (id: string, quotation: Partial<Quotation>) => Promise<void>;
+  updateQuotation: (id: string, quotation: Partial<Quotation> & { status?: string }) => Promise<void>;
   deleteQuotation: (id: string) => Promise<void>;
   getQuotationsByUser: (userId: string) => Quotation[];
   getQuotationById: (id: string) => Quotation | undefined;
@@ -59,7 +59,7 @@ const mapAPIQuotationToQuotation = (apiQuotation: APIQuotation): Quotation => ({
   totalGst: Number(apiQuotation.totalGst),
   grandTotal: Number(apiQuotation.totalAmount),
   createdAt: apiQuotation.createdAt,
-  status: apiQuotation.status.toLowerCase() as 'draft' | 'generated' | 'sent' | 'approved' | 'rejected',
+  status: apiQuotation.status.toLowerCase(),
   createdBy: apiQuotation.createdBy?.toString() || '',
 });
 
@@ -158,7 +158,7 @@ export const QuotationProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const updateQuotation = async (id: string, updatedFields: Partial<Quotation>) => {
+  const updateQuotation = async (id: string, updatedFields: Partial<Quotation> & { status?: string }) => {
     try {
       let updated;
       

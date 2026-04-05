@@ -17,7 +17,7 @@ import {
   ChevronRight,
   LogOut,
   Receipt,
-  Palette,
+  ClipboardList,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -32,6 +32,7 @@ const menuItems = [
   { id: 'company_master', label: 'Company Master', icon: Building2, path: '/company-master' },
   { id: 'sms_template', label: 'SMS Template', icon: MessageSquare, path: '/sms-template' },
   { id: 'add_product', label: 'Add Product', icon: Package, path: '/add-product' },
+  { id: 'enquiry_management', label: 'Enquiry Management', icon: ClipboardList, path: '/enquiries' },
   { id: 'client_details', label: 'Customer Management', icon: Users, path: '/client-details' },
   { id: 'new_quotation', label: 'New Quotation', icon: FileText, path: '/new-quotation' },
   { id: 'quotation_history', label: 'Quotation History', icon: History, path: '/quotation-history' },
@@ -39,7 +40,6 @@ const menuItems = [
   { id: 'invoice_management', label: 'Invoice Management', icon: Receipt, path: '/invoices' },
   { id: 'reports', label: 'Reports', icon: BarChart3, path: '/reports' },
   { id: 'user_management', label: 'User Management', icon: UserCog, path: '/user-management' },
-  { id: 'color_theme', label: 'Color Theme', icon: Palette, path: '/color-theme' },
 ];
 
 export const Sidebar = ({ isOpen, onToggle }: SidebarProps) => {

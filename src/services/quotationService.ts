@@ -16,11 +16,18 @@ export interface QuotationItem {
   itemTotal: number;
 }
 
+export interface QuotationServiceItem {
+  serviceName: string;
+  servicePrice: number;
+  serviceTax: number;
+}
+
 export interface Quotation {
   id: number;
   quotationNumber: string;
   customerId: number;
   customerName?: string;
+  customerPhone?: string;
   subtotal: number;
   totalDiscount: number;
   totalGst: number;
@@ -28,6 +35,10 @@ export interface Quotation {
   status: string;
   currency?: string;
   expiryDate?: string;
+  quotationDate?: string;
+  quotationCode?: string;
+  deliveryDate?: string;
+  executiveName?: string;
   notes?: string;
   termsAndConditions?: string;
   discountPercentage?: number;
@@ -35,6 +46,7 @@ export interface Quotation {
   createdBy?: number;
   createdByName?: string;
   items: QuotationItem[];
+  services?: QuotationServiceItem[];
   isExpired?: boolean;
   canEdit?: boolean;
 }
@@ -48,9 +60,14 @@ export interface QuotationRequest {
     discountPercentage?: number;
     taxPercentage?: number;
   }[];
+  services?: QuotationServiceItem[];
   status?: string;
   currency?: string;
   expiryDate?: string;
+  quotationDate?: string;
+  quotationCode?: string;
+  deliveryDate?: string;
+  executiveName?: string;
   notes?: string;
   termsAndConditions?: string;
   discountPercentage?: number;
