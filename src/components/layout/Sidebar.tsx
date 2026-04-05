@@ -17,7 +17,6 @@ import {
   ChevronRight,
   LogOut,
   Receipt,
-  Palette,
   ClipboardList,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -41,7 +40,6 @@ const menuItems = [
   { id: 'invoice_management', label: 'Invoice Management', icon: Receipt, path: '/invoices' },
   { id: 'reports', label: 'Reports', icon: BarChart3, path: '/reports' },
   { id: 'user_management', label: 'User Management', icon: UserCog, path: '/user-management' },
-  { id: 'color_theme', label: 'Color Theme', icon: Palette, path: '/color-theme' },
 ];
 
 export const Sidebar = ({ isOpen, onToggle }: SidebarProps) => {
