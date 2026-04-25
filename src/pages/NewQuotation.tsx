@@ -49,6 +49,7 @@ const NewQuotation = () => {
   const [notes, setNotes] = useState('');
   const [termsAndConditions, setTermsAndConditions] = useState('');
   const [quotationDiscountPercentage, setQuotationDiscountPercentage] = useState(0);
+  const [discountInput, setDiscountInput] = useState('0');
   const [quotationItems, setQuotationItems] = useState<QuotationItemForm[]>([]);
   const [services, setServices] = useState<ServiceForm[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -327,8 +328,12 @@ const NewQuotation = () => {
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-foreground mb-1">Quotation Discount (%)</label>
-                  <input type="number" value={quotationDiscountPercentage}
-                    onChange={(e) => setQuotationDiscountPercentage(Number(e.target.value))}
+                  <input type="number" value={discountInput}
+                    onChange={(e) => {
+                      setDiscountInput(e.target.value);
+                      setQuotationDiscountPercentage(e.target.value === '' ? 0 : Number(e.target.value));
+                    }}
+                    placeholder="0"
                     className="input-field" min="0" max="100" step="0.01" />
                 </div>
                 <div>

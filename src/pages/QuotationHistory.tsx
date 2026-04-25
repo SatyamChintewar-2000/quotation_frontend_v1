@@ -37,16 +37,17 @@ const QuotationHistory = () => {
   const printRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    refreshQuotations();
     api.get('/api/quotations/notification-settings')
       .then(res => setNotificationsEnabled(res.data.notificationsEnabled))
       .catch(() => setNotificationsEnabled(true));
   }, []);
 
   const getValidStatusOptions = (s: string): string[] => {
-    const gen = notificationsEnabled ? ['sent'] : ['approved'];
+    const generatedNext = notificationsEnabled ? ['sent', 'approved'] : ['approved'];
     const map: Record<string, string[]> = {
       draft: ['generated', 'rejected'],
-      generated: gen,
+      generated: generatedNext,
       sent: ['approved', 'rejected'],
       approved: [],
       rejected: [],
@@ -55,10 +56,12 @@ const QuotationHistory = () => {
   };
 
   const getStatusHelpText = (s: string): string => {
-    const genHelp = notificationsEnabled ? 'Can change to: Sent' : 'Can change to: Approved';
+    const generatedHelp = notificationsEnabled
+      ? 'Can change to: Sent, Approved'
+      : 'Can change to: Approved (notifications are off)';
     const map: Record<string, string> = {
       draft: 'Can change to: Generated, Rejected',
-      generated: genHelp,
+      generated: generatedHelp,
       sent: 'Can change to: Approved, Rejected',
       approved: 'Terminal state',
       rejected: 'Terminal state',
@@ -67,9 +70,7 @@ const QuotationHistory = () => {
   };
 
   const isSuperAdmin = user?.role === 'superadmin';
-  const userQuotations: any[] = isSuperAdmin
-    ? quotations
-    : quotations.filter((q: any) => q.createdBy === user?.id);
+  const userQuotations: any[] = quotations;
 
   const filteredQuotations = userQuotations.filter((q: any) => {
     if (searchTerm) {

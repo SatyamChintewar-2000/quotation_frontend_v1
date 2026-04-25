@@ -179,10 +179,14 @@ export const QuotationProvider = ({ children }: { children: ReactNode }) => {
         const response = await quotationService.changeStatus(Number(id), backendStatus);
         console.log('✅ Status change response:', response);
         
-        if (response.quotation) {
+        if (response && response.quotation) {
           updated = response.quotation;
+        } else if (response) {
+          // refresh from server if quotation not in response
+          await refreshQuotations();
+          toast.success('Quotation updated successfully');
+          return;
         } else {
-          console.error('❌ No quotation in response:', response);
           throw new Error('Invalid response from server');
         }
       } else {
@@ -211,12 +215,10 @@ export const QuotationProvider = ({ children }: { children: ReactNode }) => {
       // Get detailed error message
       let errorMessage = 'Failed to update quotation';
       
-      if (error.response?.data?.error) {
-        errorMessage = error.response.data.error;
-      } else if (error.response?.data?.message) {
+      if (error.response?.data?.message) {
         errorMessage = error.response.data.message;
-      } else if (error.response?.status === 400) {
-        errorMessage = 'Invalid status transition. Check the valid options.';
+      } else if (error.response?.data?.error) {
+        errorMessage = error.response.data.error;
       } else if (error.response?.status === 500) {
         errorMessage = 'Server error. Please try again later.';
       } else if (error.message) {

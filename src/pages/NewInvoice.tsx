@@ -5,6 +5,7 @@ import { useQuotations } from '@/contexts/QuotationContext';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { ArrowLeft, FileText, User, Package, IndianRupee, CalendarDays, Percent, StickyNote, ScrollText } from 'lucide-react';
+import NumericInput from '@/components/common/NumericInput';
 
 const NewInvoice = () => {
   const navigate = useNavigate();
@@ -179,14 +180,13 @@ const NewInvoice = () => {
               <label className="block text-sm font-medium text-foreground mb-1.5">
                 <span className="flex items-center gap-1.5"><Percent size={14} />Discount Percentage (%)</span>
               </label>
-              <input
-                type="number"
-                name="discountPercentage"
+              <NumericInput
                 value={formData.discountPercentage}
-                onChange={handleInputChange}
-                min="0"
-                max="100"
-                step="0.01"
+                onChange={(val) => setFormData({ ...formData, discountPercentage: val })}
+                min={0}
+                max={100}
+                step={0.01}
+                placeholder="0"
                 className="input-field"
               />
             </div>

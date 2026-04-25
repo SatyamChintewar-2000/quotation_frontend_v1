@@ -119,8 +119,18 @@ const ProductManagement = () => {
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024) { toast.error('Image must be under 5MB'); return; }
-    if (!file.type.startsWith('image/')) { toast.error('Please select an image file'); return; }
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error('Image must be under 2MB');
+      e.target.value = '';
+      setImagePreview('');
+      setFormData((p) => ({ ...p, imagePath: '' }));
+      return;
+    }
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please select an image file');
+      e.target.value = '';
+      return;
+    }
     const reader = new FileReader();
     reader.onloadend = () => {
       const result = reader.result as string;
@@ -186,9 +196,11 @@ const ProductManagement = () => {
       </label>
       <input
         type={type}
-        value={formData[key] as string | number}
+        value={type === 'number' && (formData[key] as number) === 0 ? '' : formData[key] as string | number}
         onChange={(e) => {
-          const val = type === 'number' ? parseFloat(e.target.value) || 0 : e.target.value;
+          const val = type === 'number'
+            ? (e.target.value === '' ? 0 : parseFloat(e.target.value))
+            : e.target.value;
           setFormData((p) => ({ ...p, [key]: val }));
           if (errors[key]) setErrors((p) => ({ ...p, [key]: '' }));
         }}
@@ -265,10 +277,10 @@ const ProductManagement = () => {
                       <tr key={p.id} className="table-row animate-slide-in-up" style={{ animationDelay: `${i * 40}ms` }}>
                         <td className="px-4 py-3">
                           {p.imagePath ? (
-                            <img src={p.imagePath} alt={p.productName} className="w-12 h-12 rounded-lg object-cover border border-border" />
+                            <img src={p.imagePath} alt={p.productName} className="w-20 h-20 rounded-lg object-cover border border-border" />
                           ) : (
-                            <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center">
-                              <Package size={20} className="text-primary" />
+                            <div className="w-20 h-20 rounded-lg bg-primary/10 flex items-center justify-center">
+                              <Package size={28} className="text-primary" />
                             </div>
                           )}
                         </td>
@@ -435,7 +447,7 @@ const ProductManagement = () => {
                       <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
                     </label>
                   )}
-                  <p className="text-xs text-muted-foreground mt-2">JPG, PNG or GIF · Max 5MB · Recommended 500×500px</p>
+                  <p className="text-xs text-muted-foreground mt-2">JPG, PNG or GIF · Max 2MB · Recommended 500×500px</p>
                 </div>
               </div>
 

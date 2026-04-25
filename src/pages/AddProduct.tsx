@@ -69,6 +69,13 @@ const AddProduct = () => {
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (file.size > 2 * 1024 * 1024) {
+        toast.error('Image must be under 2MB');
+        e.target.value = '';
+        setImagePreview('');
+        setFormData((prev) => ({ ...prev, image: '' }));
+        return;
+      }
       const reader = new FileReader();
       reader.onloadend = () => {
         const result = reader.result as string;
@@ -98,7 +105,7 @@ const AddProduct = () => {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!validateForm()) {
@@ -106,22 +113,35 @@ const AddProduct = () => {
       return;
     }
 
-    addProduct({
-      name: formData.name,
-      price: parseFloat(formData.price),
-      unit: formData.unit,
-      quantity: parseInt(formData.quantity),
-      discount: parseFloat(formData.discount),
-      taxType: formData.taxType,
-      gst: parseFloat(formData.gst),
-      expiryDate: formData.expiryDate,
-      description: formData.description,
-      image: formData.image,
-      createdBy: user?.id || '',
-    });
+    if (formData.image) {
+      // base64 size check: approx original bytes = length * 0.75
+      const approxBytes = formData.image.length * 0.75;
+      if (approxBytes > 2 * 1024 * 1024) {
+        toast.error('Image must be under 2MB');
+        setImagePreview('');
+        setFormData((prev) => ({ ...prev, image: '' }));
+        return;
+      }
+    }
 
-    toast.success('Product added successfully!');
-    handleClear();
+    try {
+      await addProduct({
+        name: formData.name,
+        price: parseFloat(formData.price),
+        unit: formData.unit,
+        quantity: parseInt(formData.quantity),
+        discount: parseFloat(formData.discount),
+        taxType: formData.taxType,
+        gst: parseFloat(formData.gst),
+        expiryDate: formData.expiryDate,
+        description: formData.description,
+        image: formData.image,
+        createdBy: user?.id || '',
+      });
+      handleClear();
+    } catch {
+      // error handled in context
+    }
   };
 
   const handleClear = () => {
@@ -449,6 +469,7 @@ const AddProduct = () => {
                       </label>
                     )}
                   </div>
+                  <p className="text-xs text-muted-foreground">Max file size: 2MB. Supported: JPG, PNG, WEBP</p>
                 </div>
 
                 {/* Buttons */}

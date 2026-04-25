@@ -15,6 +15,7 @@ import { DeleteConfirmModal } from '@/components/common/DeleteConfirmModal';
 import { SortableHeader } from '@/components/common/SortableHeader';
 import { useSortable } from '@/hooks/useSortable';
 import { StatusBadge } from '@/components/common/StatusBadge';
+import NumericInput from '@/components/common/NumericInput';
 
 const ITEMS_PER_PAGE = 10;
 
@@ -332,13 +333,12 @@ const InvoiceManagement = () => {
 
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Payment Amount (₹) *</label>
-                <input
-                  type="number"
-                  value={paymentForm.paymentAmount}
-                  onChange={(e) => setPaymentForm((p) => ({ ...p, paymentAmount: e.target.value }))}
+                <NumericInput
+                  value={paymentForm.paymentAmount === '' ? 0 : Number(paymentForm.paymentAmount)}
+                  onChange={(val) => setPaymentForm((p) => ({ ...p, paymentAmount: String(val) }))}
                   placeholder="0.00"
-                  min="0"
-                  step="0.01"
+                  min={0}
+                  step={0.01}
                   className="input-field"
                 />
               </div>

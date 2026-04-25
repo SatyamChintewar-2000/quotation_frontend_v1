@@ -107,29 +107,38 @@ export const Sidebar = ({ isOpen, onToggle }: SidebarProps) => {
       {/* User Section */}
       <div className="p-4 border-t border-sidebar-muted/20">
         <div className={cn('flex items-center gap-3', !isOpen && 'justify-center')}>
-          <div className="w-10 h-10 rounded-full bg-sidebar-hover flex items-center justify-center text-sidebar-foreground font-medium">
-            {user?.name.charAt(0)}
+          <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold text-sm flex-shrink-0">
+            {user?.name?.charAt(0).toUpperCase()}
           </div>
           {isOpen && (
             <div className="flex-1 min-w-0 animate-fade-in">
-              <p className="text-sidebar-foreground font-medium text-sm truncate">
+              <p className="text-sidebar-foreground font-semibold text-sm truncate">
                 {user?.name}
               </p>
-              <p className="text-sidebar-muted text-xs capitalize">
-                {user?.role.replace('_', ' ')}
+              <p className="text-white text-xs capitalize bg-sidebar-hover px-2 py-0.5 rounded-full inline-block mt-0.5">
+                {user?.role.replace('_', ' ').toLowerCase()}
               </p>
             </div>
           )}
           {isOpen && (
             <button
               onClick={logout}
-              className="p-2 rounded-lg text-sidebar-muted hover:text-sidebar-foreground hover:bg-sidebar-hover transition-colors"
+              className="p-2 rounded-lg text-sidebar-muted hover:text-red-400 hover:bg-red-400/10 transition-colors flex-shrink-0"
               title="Logout"
             >
               <LogOut size={18} />
             </button>
           )}
         </div>
+        {!isOpen && (
+          <button
+            onClick={logout}
+            className="mt-3 w-full flex justify-center p-2 rounded-lg text-sidebar-muted hover:text-red-400 hover:bg-red-400/10 transition-colors"
+            title="Logout"
+          >
+            <LogOut size={18} />
+          </button>
+        )}
       </div>
     </aside>
   );

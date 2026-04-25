@@ -9,6 +9,7 @@ import { DeleteConfirmModal } from '@/components/common/DeleteConfirmModal';
 import { StatusBadge } from '@/components/common/StatusBadge';
 import { ExportButton } from '@/components/common/ExportButton';
 import { exportToExcel } from '@/utils/excelExport';
+import NumericInput from '@/components/common/NumericInput';
 
 const ITEMS_PER_PAGE = 9;
 
@@ -392,9 +393,13 @@ const EnquiryManagement = () => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-1.5">Budget (₹)</label>
-                  <input type="number" value={formData.budget || 0} min={0}
-                    onChange={(e) => setFormData((p) => ({ ...p, budget: parseFloat(e.target.value) || 0 }))}
-                    className="input-field" />
+                  <NumericInput
+                    value={formData.budget ?? 0}
+                    onChange={(val) => setFormData((p) => ({ ...p, budget: val }))}
+                    min={0}
+                    placeholder="0"
+                    className="input-field"
+                  />
                 </div>
               </div>
 
