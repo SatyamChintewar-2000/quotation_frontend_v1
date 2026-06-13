@@ -2,7 +2,6 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProductProvider } from "@/contexts/ProductContext";
@@ -17,14 +16,15 @@ import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
 import ProductManagement from "@/pages/ProductManagement";
 import CustomerManagement from "@/pages/CustomerManagement";
+import EnquiryManagement from "@/pages/EnquiryManagement";
 import NewQuotation from "@/pages/NewQuotation";
 import QuotationHistory from "@/pages/QuotationHistory";
 import InvoiceManagement from "@/pages/InvoiceManagement";
 import NewInvoice from "@/pages/NewInvoice";
+import DirectInvoice from "@/pages/DirectInvoice";
 import InvoiceDetails from "@/pages/InvoiceDetails";
 import MasterSettings from "@/pages/MasterSettings";
 import CompanyMaster from "@/pages/CompanyMaster";
-import SmsTemplate from "@/pages/SmsTemplate";
 import Reports from "@/pages/Reports";
 import UserManagement from "@/pages/UserManagement";
 import ColorTheme from "@/pages/ColorTheme";
@@ -40,7 +40,6 @@ const App = () => (
             <TooltipProvider>
             <Toaster />
             <Sonner />
-            <ReactQueryDevtools initialIsOpen={false} />
             <BrowserRouter>
               <Routes>
                 <Route path="/login" element={<Login />} />
@@ -71,18 +70,18 @@ const App = () => (
                     }
                   />
                   <Route
-                    path="/sms-template"
-                    element={
-                      <ProtectedRoute requiredPermission="sms_template">
-                        <SmsTemplate />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
                     path="/add-product"
                     element={
                       <ProtectedRoute requiredPermission="add_product">
                         <ProductManagement />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/enquiries"
+                    element={
+                      <ProtectedRoute requiredPermission="enquiry_management">
+                        <EnquiryManagement />
                       </ProtectedRoute>
                     }
                   />
@@ -123,6 +122,14 @@ const App = () => (
                     element={
                       <ProtectedRoute requiredPermission="new_invoice">
                         <NewInvoice />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/direct-invoice"
+                    element={
+                      <ProtectedRoute requiredPermission="new_invoice">
+                        <DirectInvoice />
                       </ProtectedRoute>
                     }
                   />

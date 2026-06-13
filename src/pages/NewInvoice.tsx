@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { TopBar } from '@/components/layout/TopBar';
 import { useInvoices } from '@/contexts/InvoiceContext';
 import { useQuotations } from '@/contexts/QuotationContext';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, FileText, User, Package, IndianRupee, CalendarDays, Percent, StickyNote, ScrollText } from 'lucide-react';
+import NumericInput from '@/components/common/NumericInput';
 
 const NewInvoice = () => {
   const navigate = useNavigate();
@@ -12,7 +13,6 @@ const NewInvoice = () => {
   const { quotations } = useQuotations();
   const [loading, setLoading] = useState(false);
 
-  // Filter only APPROVED quotations (context stores status as lowercase)
   const approvedQuotations = quotations.filter((q) => q.status === 'approved');
 
   const [formData, setFormData] = useState({
@@ -29,7 +29,6 @@ const NewInvoice = () => {
   const handleQuotationChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const quotationId = e.target.value;
     setFormData({ ...formData, quotationId });
-
     const quotation = quotations.find((q) => q.id === quotationId);
     setSelectedQuotation(quotation || null);
   };
@@ -46,12 +45,10 @@ const NewInvoice = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
     if (!formData.quotationId) {
       toast.error('Please select a quotation');
       return;
     }
-
     setLoading(true);
     try {
       const result = await createInvoice({
@@ -62,97 +59,98 @@ const NewInvoice = () => {
         notes: formData.notes,
         termsAndConditions: formData.termsAndConditions,
       });
-
-      if (result) {
-        navigate(`/invoice/${result.id}`);
-      }
+      if (result) navigate(`/invoice/${result.id}`);
     } finally {
       setLoading(false);
     }
   };
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-    }).format(amount);
-  };
+  const formatCurrency = (amount: number) =>
+    new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(amount);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen">
       <TopBar title="Create New Invoice" />
 
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Back Button */}
+      <div className="max-w-3xl mx-auto px-4 py-8">
+        {/* Back */}
         <button
           onClick={() => navigate('/invoices')}
-          className="flex items-center gap-2 text-blue-600 hover:text-blue-800 mb-6 transition"
+          className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-6 transition-colors"
         >
-          <ArrowLeft className="w-4 h-4" />
+          <ArrowLeft size={16} />
           Back to Invoices
         </button>
 
-        <div className="bg-white rounded-lg shadow-lg p-8">
-          <h1 className="text-2xl font-bold text-gray-900 mb-6">Create New Invoice</h1>
+        {/* Page header */}
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
+            <FileText size={20} />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-foreground">Create New Invoice</h1>
+            <p className="text-sm text-muted-foreground">Generate an invoice from an approved quotation</p>
+          </div>
+        </div>
 
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Quotation Selection */}
+        <form onSubmit={handleSubmit} className="space-y-5">
+          {/* Quotation Selection */}
+          <div className="bg-card rounded-xl border border-border shadow-sm p-6 space-y-4">
+            <h2 className="text-sm font-semibold text-foreground uppercase tracking-wide">Quotation</h2>
+
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-foreground mb-1.5">
                 Select Approved Quotation *
               </label>
               <select
                 value={formData.quotationId}
                 onChange={handleQuotationChange}
                 required
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="input-field"
               >
                 <option value="">-- Select a quotation --</option>
                 {approvedQuotations.map((q) => (
                   <option key={q.id} value={q.id}>
-                    #{q.id} - {q.clientName} ({formatCurrency(q.grandTotal)})
+                    #{q.id} — {q.clientName} ({formatCurrency(q.grandTotal)})
                   </option>
                 ))}
               </select>
               {approvedQuotations.length === 0 && (
-                <p className="text-sm text-red-600 mt-2">
+                <p className="text-xs text-destructive mt-1.5">
                   No approved quotations available. Please approve a quotation first.
                 </p>
               )}
             </div>
 
-            {/* Quotation Details Preview */}
+            {/* Quotation preview */}
             {selectedQuotation && (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <h3 className="font-semibold text-gray-900 mb-3">Quotation Details</h3>
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <p className="text-gray-600">Quotation #</p>
-                    <p className="font-semibold text-gray-900">#{selectedQuotation.id}</p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-2">
+                {[
+                  { icon: FileText, label: 'Quotation #', value: `#${selectedQuotation.id}` },
+                  { icon: User, label: 'Customer', value: selectedQuotation.clientName },
+                  { icon: Package, label: 'Items', value: `${selectedQuotation.items.length} item${selectedQuotation.items.length !== 1 ? 's' : ''}` },
+                  { icon: IndianRupee, label: 'Total', value: formatCurrency(selectedQuotation.grandTotal) },
+                ].map(({ icon: Icon, label, value }) => (
+                  <div key={label} className="bg-primary/5 rounded-lg p-3">
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
+                      <Icon size={12} />
+                      {label}
+                    </div>
+                    <p className="text-sm font-semibold text-foreground truncate">{value}</p>
                   </div>
-                  <div>
-                    <p className="text-gray-600">Customer</p>
-                    <p className="font-semibold text-gray-900">{selectedQuotation.clientName}</p>
-                  </div>
-                  <div>
-                    <p className="text-gray-600">Items</p>
-                    <p className="font-semibold text-gray-900">{selectedQuotation.items.length}</p>
-                  </div>
-                  <div>
-                    <p className="text-gray-600">Total Amount</p>
-                    <p className="font-semibold text-gray-900">
-                      {formatCurrency(selectedQuotation.grandTotal)}
-                    </p>
-                  </div>
-                </div>
+                ))}
               </div>
             )}
+          </div>
 
-            {/* Invoice Dates */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Dates & Discount */}
+          <div className="bg-card rounded-xl border border-border shadow-sm p-6 space-y-4">
+            <h2 className="text-sm font-semibold text-foreground uppercase tracking-wide">Invoice Details</h2>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Invoice Date *
+                <label className="block text-sm font-medium text-foreground mb-1.5">
+                  <span className="flex items-center gap-1.5"><CalendarDays size={14} />Invoice Date *</span>
                 </label>
                 <input
                   type="date"
@@ -160,13 +158,12 @@ const NewInvoice = () => {
                   value={formData.invoiceDate}
                   onChange={handleInputChange}
                   required
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="input-field"
                 />
               </div>
-
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Due Date *
+                <label className="block text-sm font-medium text-foreground mb-1.5">
+                  <span className="flex items-center gap-1.5"><CalendarDays size={14} />Due Date *</span>
                 </label>
                 <input
                   type="date"
@@ -174,32 +171,34 @@ const NewInvoice = () => {
                   value={formData.dueDate}
                   onChange={handleInputChange}
                   required
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="input-field"
                 />
               </div>
             </div>
 
-            {/* Discount */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Discount Percentage (%)
+            <div className="max-w-xs">
+              <label className="block text-sm font-medium text-foreground mb-1.5">
+                <span className="flex items-center gap-1.5"><Percent size={14} />Discount Percentage (%)</span>
               </label>
-              <input
-                type="number"
-                name="discountPercentage"
+              <NumericInput
                 value={formData.discountPercentage}
-                onChange={handleInputChange}
-                min="0"
-                max="100"
-                step="0.01"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                onChange={(val) => setFormData({ ...formData, discountPercentage: val })}
+                min={0}
+                max={100}
+                step={0.01}
+                placeholder="0"
+                className="input-field"
               />
             </div>
+          </div>
 
-            {/* Notes */}
+          {/* Notes & Terms */}
+          <div className="bg-card rounded-xl border border-border shadow-sm p-6 space-y-4">
+            <h2 className="text-sm font-semibold text-foreground uppercase tracking-wide">Additional Info</h2>
+
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Notes
+              <label className="block text-sm font-medium text-foreground mb-1.5">
+                <span className="flex items-center gap-1.5"><StickyNote size={14} />Notes</span>
               </label>
               <textarea
                 name="notes"
@@ -207,14 +206,13 @@ const NewInvoice = () => {
                 onChange={handleInputChange}
                 rows={3}
                 placeholder="Add any additional notes..."
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="input-field resize-none"
               />
             </div>
 
-            {/* Terms and Conditions */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Terms and Conditions
+              <label className="block text-sm font-medium text-foreground mb-1.5">
+                <span className="flex items-center gap-1.5"><ScrollText size={14} />Terms and Conditions</span>
               </label>
               <textarea
                 name="termsAndConditions"
@@ -222,29 +220,29 @@ const NewInvoice = () => {
                 onChange={handleInputChange}
                 rows={3}
                 placeholder="Add payment terms, conditions, etc..."
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="input-field resize-none"
               />
             </div>
+          </div>
 
-            {/* Submit Buttons */}
-            <div className="flex gap-4 pt-6 border-t border-gray-200">
-              <button
-                type="button"
-                onClick={() => navigate('/invoices')}
-                className="flex-1 px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition font-medium"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={loading || !formData.quotationId}
-                className="flex-1 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {loading ? 'Creating...' : 'Create Invoice'}
-              </button>
-            </div>
-          </form>
-        </div>
+          {/* Actions */}
+          <div className="flex gap-3 pt-1">
+            <button
+              type="button"
+              onClick={() => navigate('/invoices')}
+              className="flex-1 btn-secondary"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading || !formData.quotationId}
+              className="flex-1 btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loading ? 'Creating...' : 'Create Invoice'}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );

@@ -22,7 +22,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="input-field pl-10 pr-10"
+        className="input-field h-10 pl-10 pr-10"
       />
       {value && (
         <button

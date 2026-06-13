@@ -1,384 +1,321 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { TopBar } from '@/components/layout/TopBar';
 import { useAuth } from '@/contexts/AuthContext';
-import { useProducts } from '@/contexts/ProductContext';
+import { productService, Product, ProductRequest } from '@/services/productService';
 import { toast } from 'sonner';
 import { SearchBar } from '@/components/common/SearchBar';
 import { ExportButton } from '@/components/common/ExportButton';
-import { exportToExcel, formatDateForExcel, formatCurrencyForExcel } from '@/utils/excelExport';
+import { exportToExcel } from '@/utils/excelExport';
+import { DeleteConfirmModal } from '@/components/common/DeleteConfirmModal';
+import { SortableHeader } from '@/components/common/SortableHeader';
+import { useSortable } from '@/hooks/useSortable';
+import { Pagination } from '@/components/common/Pagination';
 import {
-  Package,
-  Plus,
-  Edit,
-  Trash2,
-  X,
-  Upload,
-  ChevronLeft,
-  ChevronRight,
+  Package, Plus, Edit, Trash2, X, Upload, Tag, Layers, IndianRupee,
 } from 'lucide-react';
-
-interface ProductFormData {
-  name: string;
-  price: string;
-  unit: string;
-  quantity: string;
-  discount: string;
-  taxType: string;
-  gst: string;
-  expiryDate: string;
-  description: string;
-  image: string;
-}
-
-const initialFormData: ProductFormData = {
-  name: '',
-  price: '',
-  unit: 'piece',
-  quantity: '',
-  discount: '0',
-  taxType: 'GST',
-  gst: '18',
-  expiryDate: '',
-  description: '',
-  image: '',
-};
 
 const ITEMS_PER_PAGE = 10;
 
+const UNITS = ['piece', 'kg', 'litre', 'meter', 'box', 'set', 'dozen', 'gram', 'ml'];
+const TAX_TYPES = ['GST', 'IGST', 'No Tax'];
+const GST_RATES = ['0', '5', '12', '18', '28'];
+
+const EMPTY: ProductRequest = {
+  productName: '', productCode: '', brand: '', category: '',
+  description: '', price: 0, purchasePrice: 0,
+  unit: 'piece', quantity: 0, discountPercentage: 0,
+  taxType: 'GST', taxPercentage: 18, expiryDate: '', imagePath: '',
+};
+
 const ProductManagement = () => {
   const { user } = useAuth();
-  const { addProduct, updateProduct, deleteProduct, products } = useProducts();
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
-  const [editingProductId, setEditingProductId] = useState<string | null>(null);
-  const [formData, setFormData] = useState<ProductFormData>(initialFormData);
-  const [errors, setErrors] = useState<Partial<ProductFormData>>({});
-  const [imagePreview, setImagePreview] = useState<string>('');
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [formData, setFormData] = useState<ProductRequest>(EMPTY);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [imagePreview, setImagePreview] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [deletingProduct, setDeletingProduct] = useState<Product | null>(null);
 
-  const units = ['piece', 'kg', 'litre', 'meter', 'box', 'set', 'dozen'];
-  const taxTypes = ['GST', 'IGST', 'No Tax'];
-  const gstRates = ['0', '5', '12', '18', '28'];
+  useEffect(() => { fetchProducts(); }, []);
+  useEffect(() => { setCurrentPage(1); }, [searchTerm]);
 
-  // Get user's products
-  const userProducts = products.filter((p) => p.createdBy === user?.id);
+  const fetchProducts = async () => {
+    try {
+      setLoading(true);
+      setProducts(await productService.getAll());
+    } catch { toast.error('Failed to load products'); }
+    finally { setLoading(false); }
+  };
 
-  // Filter products by search term
-  const filteredProducts = useMemo(() => {
-    return userProducts.filter((product) => {
-      // Search filter
-      const matchesSearch =
-        product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        product.description?.toLowerCase().includes(searchTerm.toLowerCase());
+  const filtered = useMemo(() =>
+    products.filter((p) =>
+      p.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (p.brand || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (p.category || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (p.productCode || '').toLowerCase().includes(searchTerm.toLowerCase())
+    ), [products, searchTerm]);
 
-      return matchesSearch;
-    });
-  }, [userProducts, searchTerm]);
+  const { sortedData, sort, handleSort } = useSortable(filtered);
+  const totalPages = Math.ceil(sortedData.length / ITEMS_PER_PAGE);
+  const paginated = sortedData.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
-  // Pagination
-  const totalPages = Math.ceil(filteredProducts.length / ITEMS_PER_PAGE);
-  const paginatedProducts = useMemo(() => {
-    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-    return filteredProducts.slice(startIndex, startIndex + ITEMS_PER_PAGE);
-  }, [filteredProducts, currentPage]);
+  const validate = (): boolean => {
+    const e: Record<string, string> = {};
+    if (!formData.productName.trim()) e.productName = 'Product name is required';
+    if (!formData.price || formData.price <= 0) e.price = 'Valid selling price is required';
+    if (formData.quantity === undefined || formData.quantity < 0) e.quantity = 'Valid quantity is required';
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  };
 
-  // Reset to page 1 when filters change
-  React.useEffect(() => {
-    setCurrentPage(1);
-  }, [searchTerm]);
-
-  const handleInputChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
-  ) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
-    if (errors[name as keyof ProductFormData]) {
-      setErrors((prev) => ({ ...prev, [name]: '' }));
+  const handleSubmit = async (ev: React.FormEvent) => {
+    ev.preventDefault();
+    if (!validate()) return;
+    try {
+      const payload: ProductRequest = {
+        ...formData,
+        expiryDate: formData.expiryDate || undefined,
+      };
+      if (editingId) {
+        await productService.update(editingId, payload);
+        toast.success('Product updated');
+      } else {
+        await productService.create(payload);
+        toast.success('Product added');
+      }
+      closeModal();
+      fetchProducts();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Failed to save product');
     }
+  };
+
+  const handleEdit = (p: Product) => {
+    setEditingId(p.id);
+    setFormData({
+      productName: p.productName,
+      productCode: p.productCode || '',
+      brand: p.brand || '',
+      category: p.category || '',
+      description: p.description || '',
+      price: p.price,
+      purchasePrice: p.purchasePrice || 0,
+      unit: p.unit,
+      quantity: p.quantity,
+      discountPercentage: p.discountPercentage,
+      taxType: p.taxType,
+      taxPercentage: p.taxPercentage,
+      expiryDate: p.expiryDate || '',
+      imagePath: p.imagePath || '',
+    });
+    setImagePreview(p.imagePath || '');
+    setShowModal(true);
   };
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      // Check file size (max 5MB)
-      if (file.size > 5 * 1024 * 1024) {
-        toast.error('Image size should be less than 5MB');
-        return;
-      }
-
-      // Check file type
-      if (!file.type.startsWith('image/')) {
-        toast.error('Please select a valid image file');
-        return;
-      }
-
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const result = reader.result as string;
-        setImagePreview(result);
-        setFormData((prev) => ({ ...prev, image: result }));
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const removeImage = () => {
-    setImagePreview('');
-    setFormData((prev) => ({ ...prev, image: '' }));
-  };
-
-  const validateForm = (): boolean => {
-    const newErrors: Partial<ProductFormData> = {};
-
-    if (!formData.name.trim()) newErrors.name = 'Product name is required';
-    if (!formData.price || parseFloat(formData.price) <= 0)
-      newErrors.price = 'Valid price is required';
-    if (!formData.quantity || parseInt(formData.quantity) < 0)
-      newErrors.quantity = 'Valid quantity is required';
-    if (!formData.expiryDate) newErrors.expiryDate = 'Expiry date is required';
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!validateForm()) {
-      toast.error('Please fix the errors in the form');
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error('Image must be under 2MB');
+      e.target.value = '';
+      setImagePreview('');
+      setFormData((p) => ({ ...p, imagePath: '' }));
       return;
     }
-
-    const productData = {
-      name: formData.name,
-      price: parseFloat(formData.price),
-      unit: formData.unit,
-      quantity: parseInt(formData.quantity),
-      discount: parseFloat(formData.discount),
-      taxType: formData.taxType,
-      gst: parseFloat(formData.gst),
-      expiryDate: formData.expiryDate,
-      description: formData.description,
-      image: formData.image,
-      createdBy: user?.id || '',
-    };
-
-    if (editingProductId) {
-      updateProduct(editingProductId, productData);
-      toast.success('Product updated successfully!');
-    } else {
-      addProduct(productData);
-      toast.success('Product added successfully!');
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please select an image file');
+      e.target.value = '';
+      return;
     }
-    handleCloseModal();
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = reader.result as string;
+      setImagePreview(result);
+      setFormData((p) => ({ ...p, imagePath: result }));
+    };
+    reader.readAsDataURL(file);
   };
 
-  const handleEdit = (product: typeof products[0]) => {
-    setEditingProductId(product.id);
-    setFormData({
-      name: product.name,
-      price: product.price.toString(),
-      unit: product.unit,
-      quantity: product.quantity.toString(),
-      discount: product.discount.toString(),
-      taxType: product.taxType,
-      gst: product.gst.toString(),
-      expiryDate: product.expiryDate,
-      description: product.description || '',
-      image: product.image || '',
-    });
-    setImagePreview(product.image || '');
-    setShowModal(true);
-  };
-
-  const handleDeactivate = async (id: string) => {
-    if (!confirm('Deactivate this product? It will no longer appear in new quotations.')) return;
-    await deleteProduct(id);
-  };
-
-  const handleCloseModal = () => {
+  const closeModal = () => {
     setShowModal(false);
-    setEditingProductId(null);
-    setFormData(initialFormData);
+    setEditingId(null);
+    setFormData(EMPTY);
     setImagePreview('');
     setErrors({});
   };
 
-  // Export products to Excel
-  const handleExportToExcel = () => {
-    if (filteredProducts.length === 0) {
-      toast.error('No products to export');
-      return;
-    }
+  const confirmDelete = async () => {
+    if (!deletingProduct) return;
+    try {
+      await productService.delete(deletingProduct.id);
+      toast.success('Product deleted');
+      fetchProducts();
+    } catch { toast.error('Failed to delete product'); }
+  };
 
-    const columns = [
-      { header: 'Product Name', key: 'name', width: 25 },
-      { header: 'Price', key: 'price', width: 12 },
-      { header: 'Unit', key: 'unit', width: 10 },
-      { header: 'Quantity', key: 'quantity', width: 10 },
-      { header: 'Discount (%)', key: 'discount', width: 12 },
-      { header: 'Tax Type', key: 'taxType', width: 12 },
-      { header: 'GST (%)', key: 'gst', width: 10 },
-      { header: 'Expiry Date', key: 'expiryDate', width: 15 },
-      { header: 'Description', key: 'description', width: 30 },
-    ];
-
-    const exportData = filteredProducts.map((product) => ({
-      name: product.name,
-      price: formatCurrencyForExcel(product.price),
-      unit: product.unit,
-      quantity: product.quantity,
-      discount: product.discount,
-      taxType: product.taxType,
-      gst: product.gst,
-      expiryDate: formatDateForExcel(product.expiryDate),
-      description: product.description || '',
-    }));
-
-    exportToExcel(exportData, columns, 'products');
+  const handleExport = () => {
+    if (!filtered.length) { toast.error('No products to export'); return; }
+    exportToExcel(
+      filtered.map((p) => ({
+        code: p.productCode || '', name: p.productName, brand: p.brand || '',
+        category: p.category || '', unit: p.unit, mrp: p.price,
+        purchasePrice: p.purchasePrice || 0, taxType: p.taxType,
+        gst: p.taxPercentage, qty: p.quantity, discount: p.discountPercentage,
+        description: p.description || '',
+      })),
+      [
+        { header: 'Code', key: 'code', width: 12 },
+        { header: 'Product Name', key: 'name', width: 25 },
+        { header: 'Brand', key: 'brand', width: 15 },
+        { header: 'Category', key: 'category', width: 15 },
+        { header: 'Unit', key: 'unit', width: 10 },
+        { header: 'MRP (₹)', key: 'mrp', width: 12 },
+        { header: 'Purchase Price (₹)', key: 'purchasePrice', width: 18 },
+        { header: 'Tax Type', key: 'taxType', width: 12 },
+        { header: 'GST (%)', key: 'gst', width: 10 },
+        { header: 'Quantity', key: 'qty', width: 10 },
+        { header: 'Discount (%)', key: 'discount', width: 12 },
+        { header: 'Description', key: 'description', width: 30 },
+      ],
+      'products'
+    );
     toast.success('Products exported to Excel');
   };
+
+  const field = (
+    label: string, key: keyof ProductRequest, type = 'text',
+    required = false, placeholder = ''
+  ) => (
+    <div>
+      <label className="block text-sm font-medium text-foreground mb-1.5">
+        {label}{required && ' *'}
+      </label>
+      <input
+        type={type}
+        value={type === 'number' && (formData[key] as number) === 0 ? '' : formData[key] as string | number}
+        onChange={(e) => {
+          const val = type === 'number'
+            ? (e.target.value === '' ? 0 : parseFloat(e.target.value))
+            : e.target.value;
+          setFormData((p) => ({ ...p, [key]: val }));
+          if (errors[key]) setErrors((p) => ({ ...p, [key]: '' }));
+        }}
+        className={`input-field ${errors[key] ? 'border-destructive' : ''}`}
+        placeholder={placeholder || label}
+        min={type === 'number' ? 0 : undefined}
+        step={type === 'number' ? 'any' : undefined}
+      />
+      {errors[key] && <p className="text-xs text-destructive mt-1">{errors[key]}</p>}
+    </div>
+  );
+
+  if (loading) return (
+    <div className="min-h-screen">
+      <TopBar title="Product Management" />
+      <div className="p-6 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-muted-foreground">Loading products...</p>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="min-h-screen">
       <TopBar title="Product Management" />
-
       <div className="p-6 space-y-6">
-        {/* Header with Actions */}
+
+        {/* Header */}
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div>
             <h2 className="text-2xl font-bold text-foreground">Products</h2>
-            <p className="text-muted-foreground">
-              Manage your product catalog ({filteredProducts.length} products)
-            </p>
+            <p className="text-muted-foreground">Manage your product catalog</p>
           </div>
-          <button
-            onClick={() => setShowModal(true)}
-            className="btn-primary flex items-center gap-2"
-          >
-            <Plus size={20} />
-            Add Product
-          </button>
-        </div>
-
-        {/* Filters */}
-        <div className="bg-card rounded-xl shadow-md border border-border p-4">
-          <div className="flex items-center justify-between flex-wrap gap-4">
-            <SearchBar
-              value={searchTerm}
-              onChange={setSearchTerm}
-              placeholder="Search products..."
-              className="flex-1 min-w-[250px]"
-            />
-            <ExportButton
-              onClick={handleExportToExcel}
-              disabled={filteredProducts.length === 0}
-              count={filteredProducts.length}
-            />
+          <div className="flex items-center gap-3">
+            <SearchBar value={searchTerm} onChange={setSearchTerm} placeholder="Search by name, brand, category..." className="w-72" />
+            <ExportButton onClick={handleExport} disabled={!filtered.length} count={filtered.length} />
+            <button onClick={() => setShowModal(true)} className="btn-primary flex items-center gap-2">
+              <Plus size={18} /> Add Product
+            </button>
           </div>
         </div>
 
-        {/* Products Table */}
-        <div className="bg-card rounded-xl shadow-md border border-border overflow-hidden">
-          {paginatedProducts.length === 0 ? (
+        {/* Table */}
+        <div className="bg-card rounded-xl shadow-sm border border-border overflow-hidden">
+          {paginated.length === 0 ? (
             <div className="p-12 text-center">
               <Package size={48} className="mx-auto text-muted-foreground/30 mb-4" />
               <p className="text-muted-foreground">
-                {searchTerm
-                  ? 'No products found matching your search'
-                  : 'No products yet. Add your first product!'}
+                {searchTerm ? 'No products match your search' : 'No products yet. Add your first product!'}
               </p>
             </div>
           ) : (
             <>
               <div className="overflow-x-auto">
-                <table className="w-full">
+                <table className="w-full text-sm">
                   <thead>
                     <tr className="table-header">
-                      <th className="px-6 py-4 text-left">Image</th>
-                      <th className="px-6 py-4 text-left">Product Name</th>
-                      <th className="px-6 py-4 text-right">Price</th>
-                      <th className="px-6 py-4 text-center">Unit</th>
-                      <th className="px-6 py-4 text-center">Quantity</th>
-                      <th className="px-6 py-4 text-center">Discount</th>
-                      <th className="px-6 py-4 text-center">GST</th>
-                      <th className="px-6 py-4 text-left">Expiry Date</th>
-                      <th className="px-6 py-4 text-center">Actions</th>
+                      <th className="px-4 py-3 text-left">Image</th>
+                      <SortableHeader label="Product Name" sortKey="productName" sort={sort} onSort={handleSort} />
+                      <th className="px-4 py-3 text-left">Code</th>
+                      <th className="px-4 py-3 text-left">Brand / Category</th>
+                      <th className="px-4 py-3 text-right">MRP</th>
+                      <th className="px-4 py-3 text-right">Purchase</th>
+                      <th className="px-4 py-3 text-center">Unit</th>
+                      <th className="px-4 py-3 text-center">Qty</th>
+                      <th className="px-4 py-3 text-center">GST</th>
+                      <th className="px-4 py-3 text-center">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {paginatedProducts.map((product, index) => (
-                      <tr
-                        key={product.id}
-                        className="table-row animate-slide-in-up"
-                        style={{ animationDelay: `${index * 50}ms` }}
-                      >
-                        <td className="px-6 py-4">
-                          {product.image ? (
-                            <img
-                              src={product.image}
-                              alt={product.name}
-                              className="w-16 h-16 rounded-lg object-cover border border-border"
-                            />
+                    {paginated.map((p, i) => (
+                      <tr key={p.id} className="table-row animate-slide-in-up" style={{ animationDelay: `${i * 40}ms` }}>
+                        <td className="px-4 py-3">
+                          {p.imagePath ? (
+                            <img src={p.imagePath} alt={p.productName} className="w-20 h-20 rounded-lg object-cover border border-border" />
                           ) : (
-                            <div className="w-16 h-16 rounded-lg bg-primary/10 flex items-center justify-center border border-border">
-                              <Package size={24} className="text-primary" />
+                            <div className="w-20 h-20 rounded-lg bg-primary/10 flex items-center justify-center">
+                              <Package size={28} className="text-primary" />
                             </div>
                           )}
                         </td>
-                        <td className="px-6 py-4">
-                          <div>
-                            <p className="font-medium text-foreground">{product.name}</p>
-                            {product.description && (
-                              <p className="text-sm text-muted-foreground line-clamp-1">
-                                {product.description}
-                              </p>
-                            )}
-                          </div>
+                        <td className="px-4 py-3">
+                          <p className="font-medium text-foreground">{p.productName}</p>
+                          {p.description && <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{p.description}</p>}
                         </td>
-                        <td className="px-6 py-4 text-right font-medium text-foreground">
-                          ₹{product.price.toFixed(2)}
+                        <td className="px-4 py-3 text-muted-foreground font-mono text-xs">{p.productCode || '—'}</td>
+                        <td className="px-4 py-3">
+                          {p.brand && <p className="text-sm text-foreground">{p.brand}</p>}
+                          {p.category && (
+                            <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">{p.category}</span>
+                          )}
+                          {!p.brand && !p.category && <span className="text-muted-foreground">—</span>}
                         </td>
-                        <td className="px-6 py-4 text-center text-muted-foreground">
-                          {product.unit}
+                        <td className="px-4 py-3 text-right font-semibold text-foreground">₹{Number(p.price).toFixed(2)}</td>
+                        <td className="px-4 py-3 text-right text-muted-foreground">
+                          {p.purchasePrice ? `₹${Number(p.purchasePrice).toFixed(2)}` : '—'}
                         </td>
-                        <td className="px-6 py-4 text-center">
-                          <span
-                            className={
-                              product.quantity > 10
-                                ? 'badge-success'
-                                : product.quantity > 0
-                                ? 'badge-warning'
-                                : 'badge-destructive'
-                            }
-                          >
-                            {product.quantity}
-                          </span>
+                        <td className="px-4 py-3 text-center text-muted-foreground">{p.unit}</td>
+                        <td className="px-4 py-3 text-center">
+                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                            p.quantity > 10 ? 'bg-green-100 text-green-700' :
+                            p.quantity > 0 ? 'bg-yellow-100 text-yellow-700' :
+                            'bg-red-100 text-red-700'
+                          }`}>{p.quantity}</span>
                         </td>
-                        <td className="px-6 py-4 text-center text-muted-foreground">
-                          {product.discount}%
-                        </td>
-                        <td className="px-6 py-4 text-center text-muted-foreground">
-                          {product.gst}%
-                        </td>
-                        <td className="px-6 py-4 text-muted-foreground">
-                          {new Date(product.expiryDate).toLocaleDateString('en-IN')}
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center justify-center gap-2">
-                            <button
-                              onClick={() => handleEdit(product)}
-                              className="p-2 rounded-lg hover:bg-muted transition-colors"
-                              title="Edit"
-                            >
-                              <Edit size={16} className="text-muted-foreground" />
+                        <td className="px-4 py-3 text-center text-muted-foreground">{p.taxPercentage}%</td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-center gap-1">
+                            <button onClick={() => handleEdit(p)} className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors" title="Edit">
+                              <Edit size={15} />
                             </button>
-                            <button
-                              onClick={() => handleDeactivate(product.id)}
-                              className="p-2 rounded-lg hover:bg-destructive/10 transition-colors"
-                              title="Deactivate"
-                            >
-                              <Trash2 size={16} className="text-destructive" />
+                            <button onClick={() => setDeletingProduct(p)} className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" title="Delete">
+                              <Trash2 size={15} />
                             </button>
                           </div>
                         </td>
@@ -387,294 +324,152 @@ const ProductManagement = () => {
                   </tbody>
                 </table>
               </div>
-
-              {/* Pagination */}
-              {totalPages > 1 && (
-                <div className="px-6 py-4 border-t border-border flex items-center justify-between">
-                  <p className="text-sm text-muted-foreground">
-                    Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1} to{' '}
-                    {Math.min(currentPage * ITEMS_PER_PAGE, filteredProducts.length)} of{' '}
-                    {filteredProducts.length} products
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                      disabled={currentPage === 1}
-                      className="p-2 rounded-lg hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <ChevronLeft size={20} />
-                    </button>
-                    <div className="flex items-center gap-1">
-                      {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                        <button
-                          key={page}
-                          onClick={() => setCurrentPage(page)}
-                          className={`px-3 py-1 rounded-lg transition-colors ${
-                            currentPage === page
-                              ? 'bg-primary text-primary-foreground'
-                              : 'hover:bg-muted'
-                          }`}
-                        >
-                          {page}
-                        </button>
-                      ))}
-                    </div>
-                    <button
-                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                      disabled={currentPage === totalPages}
-                      className="p-2 rounded-lg hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <ChevronRight size={20} />
-                    </button>
-                  </div>
-                </div>
-              )}
+              <Pagination currentPage={currentPage} totalPages={totalPages} totalItems={sortedData.length} itemsPerPage={ITEMS_PER_PAGE} onPageChange={setCurrentPage} />
             </>
           )}
         </div>
       </div>
 
-      {/* Add Product Modal */}
+      {/* Add/Edit Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-card rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b border-border flex items-center justify-between sticky top-0 bg-card z-10">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-card rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            {/* Modal header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border sticky top-0 bg-card z-10">
               <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-primary/10 text-primary">
-                  <Package size={24} />
+                <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
+                  <Package size={18} />
                 </div>
                 <div>
-                <h3 className="text-xl font-semibold text-foreground">{editingProductId ? 'Edit Product' : 'Add New Product'}</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Fill in the product details below
-                  </p>
+                  <h3 className="font-semibold text-foreground">{editingId ? 'Edit Product' : 'Add New Product'}</h3>
+                  <p className="text-xs text-muted-foreground">Fill in the product details</p>
                 </div>
               </div>
-              <button
-                onClick={handleCloseModal}
-                className="p-2 rounded-lg hover:bg-muted transition-colors"
-              >
-                <X size={20} />
+              <button onClick={closeModal} className="p-1.5 rounded-lg hover:bg-muted transition-colors text-muted-foreground">
+                <X size={18} />
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-6 space-y-6">
-              {/* Product Name */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">Product Name *</label>
-                <input
-                  type="text"
-                  name="name"
-                  value={formData.name}
-                  onChange={handleInputChange}
-                  placeholder="Enter product name"
-                  className={`input-field ${
-                    errors.name ? 'border-destructive focus:ring-destructive' : ''
-                  }`}
-                />
-                {errors.name && <p className="text-sm text-destructive">{errors.name}</p>}
+            <form onSubmit={handleSubmit} className="p-6 space-y-5">
+              {/* Section: Identity */}
+              <div className="space-y-1 mb-1">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                  <Tag size={11} /> Product Identity
+                </p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {field('Product Name', 'productName', 'text', true, 'e.g. Samsung Galaxy S24')}
+                {field('Product Code', 'productCode', 'text', false, 'e.g. SKU-001')}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {field('Brand', 'brand', 'text', false, 'e.g. Samsung')}
+                {field('Category', 'category', 'text', false, 'e.g. Electronics')}
               </div>
 
-              {/* Price and Unit Row */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">Price (₹) *</label>
-                  <input
-                    type="number"
-                    name="price"
-                    value={formData.price}
-                    onChange={handleInputChange}
-                    placeholder="0.00"
-                    step="0.01"
-                    min="0"
-                    className={`input-field ${
-                      errors.price ? 'border-destructive focus:ring-destructive' : ''
-                    }`}
-                  />
-                  {errors.price && <p className="text-sm text-destructive">{errors.price}</p>}
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">Unit</label>
-                  <select
-                    name="unit"
-                    value={formData.unit}
-                    onChange={handleInputChange}
-                    className="input-field"
-                  >
-                    {units.map((unit) => (
-                      <option key={unit} value={unit}>
-                        {unit.charAt(0).toUpperCase() + unit.slice(1)}
-                      </option>
-                    ))}
+              {/* Section: Pricing */}
+              <div className="space-y-1 pt-1">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                  <IndianRupee size={11} /> Pricing
+                </p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {field('MRP / Selling Price (₹)', 'price', 'number', true, '0.00')}
+                {field('Purchase Price (₹)', 'purchasePrice', 'number', false, '0.00')}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1.5">Unit</label>
+                  <select value={formData.unit} onChange={(e) => setFormData((p) => ({ ...p, unit: e.target.value }))} className="input-field">
+                    {UNITS.map((u) => <option key={u} value={u}>{u.charAt(0).toUpperCase() + u.slice(1)}</option>)}
                   </select>
                 </div>
+                {field('Quantity', 'quantity', 'number', true, '0')}
+                {field('Discount (%)', 'discountPercentage', 'number', false, '0')}
               </div>
 
-              {/* Quantity and Discount Row */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">Quantity *</label>
-                  <input
-                    type="number"
-                    name="quantity"
-                    value={formData.quantity}
-                    onChange={handleInputChange}
-                    placeholder="0"
-                    min="0"
-                    className={`input-field ${
-                      errors.quantity ? 'border-destructive focus:ring-destructive' : ''
-                    }`}
-                  />
-                  {errors.quantity && (
-                    <p className="text-sm text-destructive">{errors.quantity}</p>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">Discount (%)</label>
-                  <input
-                    type="number"
-                    name="discount"
-                    value={formData.discount}
-                    onChange={handleInputChange}
-                    placeholder="0"
-                    min="0"
-                    max="100"
-                    className="input-field"
-                  />
-                </div>
+              {/* Section: Tax */}
+              <div className="space-y-1 pt-1">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                  <Layers size={11} /> Tax & Expiry
+                </p>
               </div>
-
-              {/* Tax Type and GST Row */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">Tax Type</label>
-                  <select
-                    name="taxType"
-                    value={formData.taxType}
-                    onChange={handleInputChange}
-                    className="input-field"
-                  >
-                    {taxTypes.map((type) => (
-                      <option key={type} value={type}>
-                        {type}
-                      </option>
-                    ))}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1.5">Tax Type</label>
+                  <select value={formData.taxType} onChange={(e) => setFormData((p) => ({ ...p, taxType: e.target.value }))} className="input-field">
+                    {TAX_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
-
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">GST Rate (%)</label>
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1.5">GST Rate (%)</label>
                   <select
-                    name="gst"
-                    value={formData.gst}
-                    onChange={handleInputChange}
+                    value={formData.taxPercentage?.toString()}
+                    onChange={(e) => setFormData((p) => ({ ...p, taxPercentage: parseFloat(e.target.value) }))}
                     className="input-field"
                     disabled={formData.taxType === 'No Tax'}
                   >
-                    {gstRates.map((rate) => (
-                      <option key={rate} value={rate}>
-                        {rate}%
-                      </option>
-                    ))}
+                    {GST_RATES.map((r) => <option key={r} value={r}>{r}%</option>)}
                   </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1.5">Expiry Date</label>
+                  <input type="date" value={formData.expiryDate || ''} onChange={(e) => setFormData((p) => ({ ...p, expiryDate: e.target.value }))} className="input-field" />
                 </div>
               </div>
 
-              {/* Expiry Date */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">Expiry Date *</label>
-                <input
-                  type="date"
-                  name="expiryDate"
-                  value={formData.expiryDate}
-                  onChange={handleInputChange}
-                  className={`input-field ${
-                    errors.expiryDate ? 'border-destructive focus:ring-destructive' : ''
-                  }`}
-                />
-                {errors.expiryDate && (
-                  <p className="text-sm text-destructive">{errors.expiryDate}</p>
-                )}
-              </div>
-
               {/* Description */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">Description</label>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1.5">Product Description</label>
                 <textarea
-                  name="description"
-                  value={formData.description}
-                  onChange={handleInputChange}
-                  placeholder="Enter product description..."
-                  rows={3}
+                  value={formData.description || ''}
+                  onChange={(e) => setFormData((p) => ({ ...p, description: e.target.value }))}
+                  rows={3} placeholder="Enter product description..."
                   className="input-field resize-none"
                 />
               </div>
 
               {/* Image Upload */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">Product Image</label>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1.5">Product Image</label>
                 <div className="flex items-start gap-4">
                   {imagePreview ? (
-                    <div className="relative w-32 h-32 rounded-lg overflow-hidden border-2 border-border">
-                      <img
-                        src={imagePreview}
-                        alt="Preview"
-                        className="w-full h-full object-cover"
-                      />
-                      <button
-                        type="button"
-                        onClick={removeImage}
-                        className="absolute top-2 right-2 p-1 rounded-full bg-destructive text-destructive-foreground hover:opacity-90 shadow-lg"
-                      >
-                        <X size={16} />
+                    <div className="relative w-28 h-28 rounded-xl overflow-hidden border border-border flex-shrink-0">
+                      <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
+                      <button type="button" onClick={() => { setImagePreview(''); setFormData((p) => ({ ...p, imagePath: '' })); }}
+                        className="absolute top-1.5 right-1.5 p-1 rounded-full bg-destructive text-white shadow">
+                        <X size={12} />
                       </button>
                     </div>
                   ) : (
-                    <label className="w-32 h-32 rounded-lg border-2 border-dashed border-border hover:border-primary flex flex-col items-center justify-center cursor-pointer transition-colors bg-muted/30">
-                      <Upload size={32} className="text-muted-foreground mb-2" />
-                      <span className="text-xs text-muted-foreground text-center px-2">
-                        Click to upload
-                        <br />
-                        (Max 5MB)
-                      </span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleImageChange}
-                        className="hidden"
-                      />
+                    <label className="w-28 h-28 rounded-xl border-2 border-dashed border-border hover:border-primary flex flex-col items-center justify-center cursor-pointer transition-colors bg-muted/20 flex-shrink-0">
+                      <Upload size={24} className="text-muted-foreground mb-1" />
+                      <span className="text-xs text-muted-foreground text-center px-2">Upload Image</span>
+                      <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
                     </label>
                   )}
-                  <div className="flex-1">
-                    <p className="text-sm text-muted-foreground">
-                      Upload a product image (JPG, PNG, GIF)
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Recommended size: 500x500px, Max size: 5MB
-                    </p>
-                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">JPG, PNG or GIF · Max 2MB · Recommended 500×500px</p>
                 </div>
               </div>
 
-              {/* Buttons */}
-              <div className="flex gap-4 pt-4 border-t border-border">
-                <button
-                  type="button"
-                  onClick={handleCloseModal}
-                  className="flex-1 btn-secondary"
-                >
-                  Cancel
-                </button>
+              {/* Actions */}
+              <div className="flex gap-3 pt-2 border-t border-border">
+                <button type="button" onClick={closeModal} className="flex-1 btn-secondary">Cancel</button>
                 <button type="submit" className="flex-1 btn-primary">
-                  {editingProductId ? 'Update Product' : 'Add Product'}
+                  {editingId ? 'Update Product' : 'Add Product'}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
+      <DeleteConfirmModal
+        isOpen={!!deletingProduct}
+        onClose={() => setDeletingProduct(null)}
+        onConfirm={confirmDelete}
+        title="Delete Product"
+        itemName={deletingProduct?.productName}
+      />
     </div>
   );
 };

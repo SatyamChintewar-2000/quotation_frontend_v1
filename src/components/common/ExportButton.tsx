@@ -1,5 +1,5 @@
 import React from 'react';
-import { Download } from 'lucide-react';
+import { FileSpreadsheet } from 'lucide-react';
 
 interface ExportButtonProps {
   onClick: () => void;
@@ -12,19 +12,27 @@ export const ExportButton: React.FC<ExportButtonProps> = ({
   onClick,
   label = 'Export to Excel',
   disabled = false,
-  count
+  count,
 }) => {
   return (
     <button
       onClick={onClick}
       disabled={disabled}
-      className="btn-secondary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
       title={label}
+      className={`
+        relative flex items-center gap-2 h-10 px-4 rounded-lg font-medium text-sm
+        whitespace-nowrap transition-all duration-200
+        bg-emerald-600 hover:bg-emerald-700 active:scale-95
+        text-white shadow-md hover:shadow-emerald-500/30 hover:shadow-lg
+        disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none disabled:active:scale-100
+      `}
     >
-      <Download size={18} />
-      {label}
+      <FileSpreadsheet size={16} className="flex-shrink-0" />
+      <span>{label}</span>
       {count !== undefined && count > 0 && (
-        <span className="badge-primary ml-1">{count}</span>
+        <span className="ml-0.5 bg-white/25 text-white text-xs font-bold px-1.5 py-0.5 rounded-md">
+          {count}
+        </span>
       )}
     </button>
   );

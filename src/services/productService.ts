@@ -3,14 +3,18 @@ import api from './api';
 export interface Product {
   id: number;
   productName: string;
-  description: string;
+  productCode?: string;
+  brand?: string;
+  category?: string;
+  description?: string;
   price: number;
+  purchasePrice?: number;
   unit: string;
   quantity: number;
   discountPercentage: number;
   taxType: string;
   taxPercentage: number;
-  expiryDate: string;
+  expiryDate?: string;
   imagePath?: string;
   companyId?: number;
   companyName?: string;
@@ -22,8 +26,12 @@ export interface Product {
 
 export interface ProductRequest {
   productName: string;
+  productCode?: string;
+  brand?: string;
+  category?: string;
   description?: string;
   price: number;
+  purchasePrice?: number;
   unit?: string;
   quantity: number;
   discountPercentage?: number;
@@ -31,6 +39,7 @@ export interface ProductRequest {
   taxPercentage?: number;
   expiryDate?: string;
   imagePath?: string;
+  companyId?: number; // Required for SUPER_ADMIN
 }
 
 export const productService = {

@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { TopBar } from '@/components/layout/TopBar';
 import { useInvoices } from '@/contexts/InvoiceContext';
 import { useParams, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
+import html2canvas from 'html2canvas';
+import jsPDF from 'jspdf';
 import {
   ArrowLeft,
   Download,
@@ -14,8 +16,13 @@ import {
   AlertCircle,
   Clock,
   DollarSign,
+  Loader2,
 } from 'lucide-react';
 import { Invoice, Payment } from '@/services/invoiceService';
+import { DeleteConfirmModal } from '@/components/common/DeleteConfirmModal';
+import { StatusBadge } from '@/components/common/StatusBadge';
+import InvoicePrintView from '@/components/common/InvoicePrintView';
+import NumericInput from '@/components/common/NumericInput';
 
 const InvoiceDetails = () => {
   const { id } = useParams<{ id: string }>();
@@ -24,7 +31,10 @@ const InvoiceDetails = () => {
 
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [loading, setLoading] = useState(true);
+  const [downloading, setDownloading] = useState(false);
+  const printRef = useRef<HTMLDivElement>(null);
   const [showPaymentForm, setShowPaymentForm] = useState(false);
+  const [deletingPaymentId, setDeletingPaymentId] = useState<number | null>(null);
   const [paymentData, setPaymentData] = useState({
     paymentDate: new Date().toISOString().split('T')[0],
     paymentAmount: 0,
@@ -85,13 +95,48 @@ const InvoiceDetails = () => {
     }
   };
 
-  const handleDeletePayment = async (paymentId: number | undefined) => {
+  const handleDeletePayment = (paymentId: number | undefined) => {
     if (!invoice?.id || !paymentId) return;
-    if (window.confirm('Are you sure you want to delete this payment?')) {
-      await deletePayment(invoice.id, paymentId);
-      const updated = await fetchInvoiceById(invoice.id);
-      setInvoice(updated);
+    setDeletingPaymentId(paymentId);
+  };
+
+  const handleDownloadPDF = async () => {
+    if (!printRef.current) { toast.error('Could not render invoice'); return; }
+    try {
+      setDownloading(true);
+      const canvas = await html2canvas(printRef.current, {
+        scale: 1.5, // Reduced from 2 to 1.5 for smaller file size
+        useCORS: true, 
+        allowTaint: true, 
+        backgroundColor: '#ffffff', 
+        logging: false,
+      });
+      // Use JPEG with compression instead of PNG for much smaller file size
+      const imgData = canvas.toDataURL('image/jpeg', 0.85); // 85% quality JPEG
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'px', format: 'a4' });
+      const pw = pdf.internal.pageSize.getWidth();
+      const ph = (canvas.height * pw) / canvas.width;
+      const pageH = pdf.internal.pageSize.getHeight();
+      let y = 0;
+      while (y < ph) {
+        if (y > 0) pdf.addPage();
+        pdf.addImage(imgData, 'JPEG', 0, -y, pw, ph, undefined, 'FAST'); // Use JPEG and FAST compression
+        y += pageH;
+      }
+      pdf.save(`invoice-${invoice?.invoiceNumber || id}.pdf`);
+      toast.success('PDF downloaded');
+    } catch (err) {
+      toast.error('Failed to generate PDF');
+    } finally {
+      setDownloading(false);
     }
+  };
+
+  const confirmDeletePayment = async () => {
+    if (!invoice?.id || !deletingPaymentId) return;
+    await deletePayment(invoice.id, deletingPaymentId);
+    const updated = await fetchInvoiceById(invoice.id);
+    setInvoice(updated);
   };
 
   const formatCurrency = (amount: number) => {
@@ -104,25 +149,6 @@ const InvoiceDetails = () => {
   const formatDate = (dateString: string | undefined) => {
     if (!dateString) return '-';
     return new Date(dateString).toLocaleDateString('en-IN');
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'DRAFT':
-        return 'bg-gray-100 text-gray-800';
-      case 'SENT':
-        return 'bg-blue-100 text-blue-800';
-      case 'PAID':
-        return 'bg-green-100 text-green-800';
-      case 'PARTIAL':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'OVERDUE':
-        return 'bg-red-100 text-red-800';
-      case 'CANCELLED':
-        return 'bg-gray-300 text-gray-700';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
   };
 
   if (loading) {
@@ -175,10 +201,8 @@ const InvoiceDetails = () => {
               <p className="text-gray-600 mt-1">Invoice Date: {formatDate(invoice.invoiceDate)}</p>
             </div>
             <div className="text-right">
-              <span className={`px-4 py-2 rounded-full text-sm font-semibold ${getStatusColor(invoice.status)}`}>
-                {invoice.status}
-              </span>
-              <p className="text-gray-600 mt-2">Payment: {invoice.paymentStatus}</p>
+              <StatusBadge status={invoice.status} />
+              <p className="text-gray-600 mt-2">Payment: <StatusBadge status={invoice.paymentStatus} /></p>
             </div>
           </div>
 
@@ -222,9 +246,13 @@ const InvoiceDetails = () => {
                 Record Payment
               </button>
             )}
-            <button className="flex items-center gap-2 bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition">
-              <Download className="w-4 h-4" />
-              Download PDF
+            <button
+              onClick={handleDownloadPDF}
+              disabled={downloading}
+              className="flex items-center gap-2 bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition disabled:opacity-60"
+            >
+              {downloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+              {downloading ? 'Generating...' : 'Download PDF'}
             </button>
           </div>
         </div>
@@ -254,18 +282,13 @@ const InvoiceDetails = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Payment Amount *
                   </label>
-                  <input
-                    type="number"
+                  <NumericInput
                     value={paymentData.paymentAmount}
-                    onChange={(e) =>
-                      setPaymentData({
-                        ...paymentData,
-                        paymentAmount: parseFloat(e.target.value) || 0,
-                      })
-                    }
-                    min="0"
-                    step="0.01"
+                    onChange={(val) => setPaymentData({ ...paymentData, paymentAmount: val })}
+                    min={0}
+                    step={0.01}
                     required
+                    placeholder="0.00"
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                 </div>
@@ -510,6 +533,20 @@ const InvoiceDetails = () => {
             )}
           </div>
         </div>
+      </div>
+
+      {/* Delete Payment Modal */}
+      <DeleteConfirmModal
+        isOpen={!!deletingPaymentId}
+        onClose={() => setDeletingPaymentId(null)}
+        onConfirm={confirmDeletePayment}
+        title="Delete Payment"
+        message="Are you sure you want to delete this payment record? This action cannot be undone."
+      />
+
+      {/* Hidden print view for PDF generation */}
+      <div style={{ position: 'fixed', left: '-9999px', top: 0, zIndex: -1 }}>
+        <InvoicePrintView ref={printRef} invoice={invoice} />
       </div>
     </div>
   );

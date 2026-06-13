@@ -1,12 +1,26 @@
 import React, { useState, useEffect } from 'react';
 import { TopBar } from '@/components/layout/TopBar';
-import { Plus, Edit, Trash2, Mail, Phone, Building, Filter, ToggleLeft, ToggleRight } from 'lucide-react';
+import { Plus, Edit, Trash2, Mail, Phone, Building, Filter, ToggleLeft, ToggleRight, Eye, EyeOff } from 'lucide-react';
 import { userService, UserDTO, UserRequest, RoleDTO } from '@/services/userService';
 import { companyService, Company } from '@/services/companyService';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
+import { DeleteConfirmModal } from '@/components/common/DeleteConfirmModal';
+import { SortableHeader } from '@/components/common/SortableHeader';
+import { useSortable } from '@/hooks/useSortable';
+import { StatusBadge } from '@/components/common/StatusBadge';
 
-const PHONE_REGEX = /^[0-9]{7,15}$/;
+const PHONE_REGEX = /^[6-9][0-9]{9}$/;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+interface FormErrors {
+  name?: string;
+  email?: string;
+  password?: string;
+  roleId?: string;
+  companyId?: string;
+  phone?: string;
+}
 
 const UserManagement = () => {
   const { user: currentUser } = useAuth();
@@ -17,7 +31,8 @@ const UserManagement = () => {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingUser, setEditingUser] = useState<UserDTO | null>(null);
-  const [phoneError, setPhoneError] = useState('');
+  const [deletingUser, setDeletingUser] = useState<UserDTO | null>(null);
+  const [formErrors, setFormErrors] = useState<FormErrors>({});
   const [formData, setFormData] = useState<UserRequest>({
     name: '',
     email: '',
@@ -28,6 +43,7 @@ const UserManagement = () => {
     department: '',
     companyId: undefined,
   });
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -41,7 +57,7 @@ const UserManagement = () => {
         userService.getRoles(),
       ]);
       setUsers(usersData);
-      
+
       // Fetch companies for SUPER_ADMIN
       if (currentUser?.role === 'superadmin') {
         try {
@@ -51,7 +67,7 @@ const UserManagement = () => {
           console.error('Failed to fetch companies:', error);
         }
       }
-      
+
       // Filter roles based on current user's role
       let filtered = rolesData;
       if (currentUser?.role === 'client') {
@@ -62,9 +78,9 @@ const UserManagement = () => {
         filtered = [];
       }
       // SUPER_ADMIN can add all roles
-      
+
       setAvailableRoles(filtered);
-      
+
       // Set default roleId
       if (filtered.length > 0) {
         setFormData(prev => ({ ...prev, roleId: filtered[0].id }));
@@ -77,14 +93,40 @@ const UserManagement = () => {
     }
   };
 
+  const validate = (): boolean => {
+    const errors: FormErrors = {};
+    if (!formData.name.trim()) errors.name = 'Name is required';
+    if (!formData.email.trim()) {
+      errors.email = 'Email is required';
+    } else if (!EMAIL_REGEX.test(formData.email)) {
+      errors.email = 'Enter a valid email address';
+    }
+    if (!editingUser) {
+      if (!formData.password) errors.password = 'Password is required';
+      else if (formData.password.length < 6) errors.password = 'Password must be at least 6 characters';
+    }
+    if (!formData.roleId) errors.roleId = 'Role is required';
+    if (needsCompanySelection && !formData.companyId) errors.companyId = 'Company is required';
+    if (formData.phone && !PHONE_REGEX.test(formData.phone)) {
+      errors.phone = 'Enter a valid 10-digit Indian mobile number (starts with 6, 7, 8 or 9)';
+    }
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const isFormValid = (): boolean => {
+    if (!formData.name.trim()) return false;
+    if (!formData.email.trim() || !EMAIL_REGEX.test(formData.email)) return false;
+    if (!editingUser && (!formData.password || formData.password.length < 6)) return false;
+    if (!formData.roleId) return false;
+    if (needsCompanySelection && !formData.companyId) return false;
+    if (formData.phone && !PHONE_REGEX.test(formData.phone)) return false;
+    return true;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Phone validation
-    if (formData.phone && !PHONE_REGEX.test(formData.phone)) {
-      setPhoneError('Phone must be 7-15 digits only');
-      return;
-    }
-    setPhoneError('');
+    if (!validate()) return;
     try {
       if (editingUser) {
         await userService.update(editingUser.id, formData);
@@ -122,11 +164,14 @@ const UserManagement = () => {
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm('Are you sure you want to delete this user?')) return;
-    
+  const handleDelete = (user: UserDTO) => {
+    setDeletingUser(user);
+  };
+
+  const confirmDelete = async () => {
+    if (!deletingUser) return;
     try {
-      await userService.delete(id);
+      await userService.delete(deletingUser.id);
       toast.success('User deleted successfully');
       fetchData();
     } catch (error) {
@@ -163,6 +208,8 @@ const UserManagement = () => {
       department: '',
       companyId: undefined,
     });
+    setFormErrors({});
+    setShowPassword(false); // Reset password visibility
   };
 
   // Get selected role name
@@ -171,13 +218,14 @@ const UserManagement = () => {
     return role?.roleName || '';
   };
 
+  const isSuperAdmin = currentUser?.role === 'superadmin';
   const isCreatingClient = !editingUser && getSelectedRoleName() === 'CLIENT';
   // SUPER_ADMIN creating STAFF also needs company selection
   const isCreatingStaff = !editingUser && getSelectedRoleName() === 'STAFF';
   const needsCompanySelection = isSuperAdmin && (isCreatingClient || isCreatingStaff);
 
-  const canAddUsers = currentUser?.role === 'superadmin' || 
-                      currentUser?.role === 'client';
+  const canAddUsers = currentUser?.role === 'superadmin' ||
+    currentUser?.role === 'client';
 
   // Button label: client sees "Add Staff", superadmin sees "Add User"
   const addButtonLabel = currentUser?.role === 'client' ? 'Add Staff' : 'Add User';
@@ -192,7 +240,7 @@ const UserManagement = () => {
     ? users.filter(u => u.companyId === selectedCompanyId)
     : users;
 
-  const isSuperAdmin = currentUser?.role === 'superadmin';
+  const { sortedData: sortedUsers, sort, handleSort } = useSortable(filteredUsers);
 
   if (loading) {
     return (
@@ -211,7 +259,7 @@ const UserManagement = () => {
   return (
     <div className="min-h-screen">
       <TopBar title="User Management" />
-      
+
       <div className="p-6 space-y-6">
         {/* Header */}
         <div className="flex justify-between items-center">
@@ -264,89 +312,104 @@ const UserManagement = () => {
         {/* Users Table */}
         <div className="bg-card rounded-xl shadow-md border border-border overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full">
+            <table className="min-w-full w-full table-fixed text-sm">
               <thead>
                 <tr className="table-header">
-                  <th className="px-6 py-4 text-left">Name</th>
-                  <th className="px-6 py-4 text-left">Email</th>
-                  <th className="px-6 py-4 text-left">Role</th>
-                  {isSuperAdmin && <th className="px-6 py-4 text-left">Company</th>}
-                  <th className="px-6 py-4 text-left">Phone</th>
-                  <th className="px-6 py-4 text-left">Department</th>
-                  <th className="px-6 py-4 text-left">Status</th>
-                  <th className="px-6 py-4 text-right">Actions</th>
+                  <SortableHeader
+                    label="Name"
+                    sortKey="name"
+                    sort={sort}
+                    onSort={handleSort}
+                    className="px-3 py-3 text-left w-32"
+                  />
+                  <th className="px-3 py-3 text-left w-52">Email</th>
+                  <th className="px-3 py-3 text-left w-24">Role</th>
+                  {isSuperAdmin && <th className="px-3 py-3 text-left w-44 hidden xl:table-cell">Company</th>}
+                  <th className="px-3 py-3 text-left w-32 hidden lg:table-cell">Phone</th>
+                  <th className="px-3 py-3 text-left w-32 hidden lg:table-cell">Department</th>
+                  <th className="px-3 py-3 text-left w-24">Status</th>
+                  <th className="px-3 py-3 text-right w-28">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredUsers.map((user) => (
+                {sortedUsers.map((user) => (
                   <tr key={user.id} className="table-row">
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-medium">
+                    <td className="px-3 py-3 min-w-0">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-medium text-sm">
                           {user.name.charAt(0)}
                         </div>
-                        <span className="font-medium text-foreground">{user.name}</span>
+                        <span className="font-medium text-foreground truncate block">{user.name}</span>
                       </div>
                     </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2 text-muted-foreground">
-                        <Mail size={16} />
-                        {user.email}
+                    <td className="px-3 py-3 min-w-0">
+                      <div className="flex items-center gap-2 text-muted-foreground min-w-0">
+                        <Mail size={14} className="flex-shrink-0" />
+                        <span className="truncate block">{user.email}</span>
                       </div>
                     </td>
-                    <td className="px-6 py-4">
-                      <span className="badge-primary">
+                    <td className="px-3 py-3">
+                      <span className="badge-primary text-xs py-1 px-2">
                         {user.role}
                       </span>
                     </td>
                     {isSuperAdmin && (
-                      <td className="px-6 py-4">
+                      <td className="px-3 py-3 hidden xl:table-cell min-w-0">
                         {user.companyName ? (
-                          <div className="flex items-center gap-2 text-muted-foreground">
-                            <Building size={16} />
-                            {user.companyName}
+                          <div className="flex items-center gap-2 text-muted-foreground min-w-0">
+                            <Building size={14} className="flex-shrink-0" />
+                            <span className="truncate block">{user.companyName}</span>
                           </div>
                         ) : (
-                          <span className="text-muted-foreground">-</span>
+                          <span className="text-muted-foreground text-xs">-</span>
                         )}
                       </td>
                     )}
-                    <td className="px-6 py-4">
-                      {user.phone && (
-                        <div className="flex items-center gap-2 text-muted-foreground">
-                          <Phone size={16} />
-                          {user.phone}
+                    <td className="px-3 py-3 hidden lg:table-cell min-w-0">
+                      {user.phone ? (
+                        <div className="flex items-center gap-2 text-muted-foreground min-w-0">
+                          <Phone size={14} className="flex-shrink-0" />
+                          <span className="truncate block">{user.phone}</span>
                         </div>
+                      ) : (
+                        <span className="text-muted-foreground text-xs">-</span>
                       )}
                     </td>
-                    <td className="px-6 py-4">
-                      {user.department && (
-                        <div className="flex items-center gap-2 text-muted-foreground">
-                          <Building size={16} />
-                          {user.department}
+                    <td className="px-3 py-3 hidden lg:table-cell min-w-0">
+                      {user.department ? (
+                        <div className="flex items-center gap-2 text-muted-foreground min-w-0">
+                          <Building size={14} className="flex-shrink-0" />
+                          <span className="truncate block">{user.department}</span>
                         </div>
+                      ) : (
+                        <span className="text-muted-foreground text-xs">-</span>
                       )}
                     </td>
-                    <td className="px-6 py-4">
-                      <span className={user.active ? 'badge-success' : 'badge-warning'}>
-                        {user.active ? 'Active' : 'Inactive'}
-                      </span>
+                    <td className="px-3 py-3">
+                      <StatusBadge status={user.active ? 'active' : 'inactive'} />
                     </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center justify-end gap-2">
+                    <td className="px-3 py-3 text-right whitespace-nowrap">
+                      <div className="flex items-center justify-end gap-1 whitespace-nowrap">
                         <button
                           onClick={() => handleEdit(user)}
-                          className="p-2 rounded-lg text-primary hover:bg-primary/10 transition-colors"
+                          className="p-1.5 rounded-lg text-primary hover:bg-primary/10 transition-colors"
                           title="Edit"
                         >
-                          <Edit size={18} />
+                          <Edit size={16} />
                         </button>
                         <button
                           onClick={() => handleToggleActive(user)}
-                          className={`p-2 rounded-lg transition-colors ${user.active ? 'text-green-600 hover:bg-green-50' : 'text-muted-foreground hover:bg-muted'}`}
+                          className={`p-1.5 rounded-lg transition-colors ${user.active ? 'text-green-600 hover:bg-green-50' : 'text-muted-foreground hover:bg-muted'}`}
                           title={user.active ? 'Deactivate' : 'Activate'}
                         >
-                          {user.active ? <ToggleRight size={22} /> : <ToggleLeft size={22} />}
+                          {user.active ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
+                        </button>
+                        <button
+                          onClick={() => handleDelete(user)}
+                          className="p-1.5 rounded-lg text-destructive hover:bg-destructive/10 transition-colors"
+                          title="Delete"
+                        >
+                          <Trash2 size={16} />
                         </button>
                       </div>
                     </td>
@@ -367,140 +430,135 @@ const UserManagement = () => {
                 {editingUser ? 'Edit User' : 'Add New User'}
               </h3>
             </div>
-            
+
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
-                  Name *
-                </label>
+                <label className="block text-sm font-medium text-foreground mb-2">Name *</label>
                 <input
                   type="text"
                   value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="input-field"
-                  required
+                  onChange={(e) => { setFormData({ ...formData, name: e.target.value }); setFormErrors(p => ({ ...p, name: '' })); }}
+                  className={`input-field ${formErrors.name ? 'border-destructive' : ''}`}
+                  placeholder="Enter full name"
                 />
+                {formErrors.name && <p className="text-xs text-destructive mt-1">{formErrors.name}</p>}
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
-                  Email *
-                </label>
+                <label className="block text-sm font-medium text-foreground mb-2">Email *</label>
                 <input
-                  type="email"
+                  type="text"
                   value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="input-field"
-                  required
+                  onChange={(e) => { setFormData({ ...formData, email: e.target.value }); setFormErrors(p => ({ ...p, email: '' })); }}
+                  className={`input-field ${formErrors.email ? 'border-destructive' : ''}`}
+                  placeholder="user@example.com"
                 />
+                {formErrors.email && <p className="text-xs text-destructive mt-1">{formErrors.email}</p>}
               </div>
 
               {!editingUser && (
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">
-                    Password *
-                  </label>
-                  <input
-                    type="password"
-                    value={formData.password}
-                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                    className="input-field"
-                    required={!editingUser}
-                    placeholder="Enter password"
-                  />
+                  <label className="block text-sm font-medium text-foreground mb-2">Password *</label>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      value={formData.password}
+                      onChange={(e) => { setFormData({ ...formData, password: e.target.value }); setFormErrors(p => ({ ...p, password: '' })); }}
+                      className={`input-field pr-10 ${formErrors.password ? 'border-destructive' : ''}`}
+                      placeholder="Min. 6 characters"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                      title={showPassword ? "Hide password" : "Show password"}
+                    >
+                      {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
+                  {formErrors.password && <p className="text-xs text-destructive mt-1">{formErrors.password}</p>}
                 </div>
               )}
 
               <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
-                  Role *
-                </label>
+                <label className="block text-sm font-medium text-foreground mb-2">Role *</label>
                 <select
                   value={formData.roleId}
-                  onChange={(e) => setFormData({ ...formData, roleId: Number(e.target.value) })}
-                  className="input-field"
-                  required
+                  onChange={(e) => { setFormData({ ...formData, roleId: Number(e.target.value) }); setFormErrors(p => ({ ...p, roleId: '' })); }}
+                  className={`input-field ${formErrors.roleId ? 'border-destructive' : ''}`}
                 >
                   {availableRoles.map((role) => (
-                    <option key={role.id} value={role.id}>
-                      {role.roleName}
-                    </option>
+                    <option key={role.id} value={role.id}>{role.roleName}</option>
                   ))}
                 </select>
+                {formErrors.roleId && <p className="text-xs text-destructive mt-1">{formErrors.roleId}</p>}
               </div>
 
-              {/* Company dropdown - for SUPER_ADMIN creating CLIENT or STAFF users */}
               {needsCompanySelection && companies.length > 0 && (
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">
-                    Company *
-                  </label>
+                  <label className="block text-sm font-medium text-foreground mb-2">Company *</label>
                   <select
                     value={formData.companyId || ''}
-                    onChange={(e) => setFormData({ ...formData, companyId: e.target.value ? Number(e.target.value) : undefined })}
-                    className="input-field"
-                    required
+                    onChange={(e) => { setFormData({ ...formData, companyId: e.target.value ? Number(e.target.value) : undefined }); setFormErrors(p => ({ ...p, companyId: '' })); }}
+                    className={`input-field ${formErrors.companyId ? 'border-destructive' : ''}`}
                   >
                     <option value="">Select Company</option>
                     {companies.map((company) => (
-                      <option key={company.id} value={company.id}>
-                        {company.companyName}
-                      </option>
+                      <option key={company.id} value={company.id}>{company.companyName}</option>
                     ))}
                   </select>
+                  {formErrors.companyId && <p className="text-xs text-destructive mt-1">{formErrors.companyId}</p>}
                 </div>
               )}
 
               <div className="grid grid-cols-3 gap-2">
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">
-                    Code
-                  </label>
+                  <label className="block text-sm font-medium text-foreground mb-2">Code</label>
                   <input
                     type="text"
-                    value={formData.countryCode}
-                    onChange={(e) => setFormData({ ...formData, countryCode: e.target.value })}
-                    className="input-field"
-                    placeholder="+91"
+                    value="+91"
+                    readOnly
+                    className="input-field bg-muted cursor-not-allowed"
                   />
                 </div>
                 <div className="col-span-2">
-                  <label className="block text-sm font-medium text-foreground mb-2">
-                    Phone
-                  </label>
+                  <label className="block text-sm font-medium text-foreground mb-2">Phone</label>
                   <input
                     type="tel"
                     value={formData.phone}
-                    onChange={(e) => { setFormData({ ...formData, phone: e.target.value }); setPhoneError(''); }}
-                    className={`input-field ${phoneError ? 'border-destructive' : ''}`}
-                    placeholder="Phone number (digits only)"
+                    maxLength={10}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, '').slice(0, 10);
+                      setFormData({ ...formData, phone: val });
+                      setFormErrors(p => ({ ...p, phone: '' }));
+                    }}
+                    className={`input-field ${formErrors.phone ? 'border-destructive' : ''}`}
+                    placeholder="10-digit mobile number"
                   />
-                  {phoneError && <p className="text-xs text-destructive mt-1">{phoneError}</p>}
+                  {formErrors.phone && <p className="text-xs text-destructive mt-1">{formErrors.phone}</p>}
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
-                  Department
-                </label>
+                <label className="block text-sm font-medium text-foreground mb-2">Department</label>
                 <input
                   type="text"
                   value={formData.department}
                   onChange={(e) => setFormData({ ...formData, department: e.target.value })}
                   className="input-field"
-                  placeholder="e.g., Sales, IT, HR"
+                  placeholder="e.g., Sales, IT, HR (optional)"
                 />
               </div>
 
               <div className="flex gap-3 pt-4">
-                <button
-                  type="button"
-                  onClick={handleCloseModal}
-                  className="flex-1 btn-secondary"
-                >
+                <button type="button" onClick={handleCloseModal} className="flex-1 btn-secondary">
                   Cancel
                 </button>
-                <button type="submit" className="flex-1 btn-primary">
+                <button
+                  type="submit"
+                  disabled={!isFormValid()}
+                  className="flex-1 btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                >
                   {editingUser ? 'Update' : 'Create'} User
                 </button>
               </div>
@@ -508,6 +566,14 @@ const UserManagement = () => {
           </div>
         </div>
       )}
+      {/* Delete Confirmation Modal */}
+      <DeleteConfirmModal
+        isOpen={!!deletingUser}
+        onClose={() => setDeletingUser(null)}
+        onConfirm={confirmDelete}
+        title="Delete User"
+        itemName={deletingUser?.name}
+      />
     </div>
   );
 };

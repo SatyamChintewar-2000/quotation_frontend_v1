@@ -3,9 +3,11 @@ import api from './api';
 export interface AppSettings {
   email_notifications_enabled: string;
   whatsapp_notifications_enabled: string;
+  mobile_otp_login_enabled: string;
   whatsapp_api_url: string;
   whatsapp_api_token: string;
   whatsapp_phone_number_id: string;
+  superadmin_logo: string;
 }
 
 export const settingsService = {

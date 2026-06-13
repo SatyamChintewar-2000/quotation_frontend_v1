@@ -17,6 +17,7 @@ interface Product {
   description: string;
   image?: string;
   createdBy: string;
+  companyId?: number; // For SUPER_ADMIN to specify company
 }
 
 interface ProductContextType {
@@ -59,6 +60,7 @@ const mapProductToAPIRequest = (product: Omit<Product, 'id'> | Partial<Product>)
   taxPercentage: product.gst || 0,
   expiryDate: product.expiryDate,
   imagePath: product.image,
+  companyId: product.companyId ? Number(product.companyId) : undefined,
 });
 
 export const ProductProvider = ({ children }: { children: ReactNode }) => {
