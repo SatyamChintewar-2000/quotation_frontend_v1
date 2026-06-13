@@ -105,9 +105,14 @@ const InvoiceDetails = () => {
     try {
       setDownloading(true);
       const canvas = await html2canvas(printRef.current, {
-        scale: 2, useCORS: true, allowTaint: true, backgroundColor: '#ffffff', logging: false,
+        scale: 1.5, // Reduced from 2 to 1.5 for smaller file size
+        useCORS: true, 
+        allowTaint: true, 
+        backgroundColor: '#ffffff', 
+        logging: false,
       });
-      const imgData = canvas.toDataURL('image/png');
+      // Use JPEG with compression instead of PNG for much smaller file size
+      const imgData = canvas.toDataURL('image/jpeg', 0.85); // 85% quality JPEG
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'px', format: 'a4' });
       const pw = pdf.internal.pageSize.getWidth();
       const ph = (canvas.height * pw) / canvas.width;
@@ -115,7 +120,7 @@ const InvoiceDetails = () => {
       let y = 0;
       while (y < ph) {
         if (y > 0) pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 0, -y, pw, ph);
+        pdf.addImage(imgData, 'JPEG', 0, -y, pw, ph, undefined, 'FAST'); // Use JPEG and FAST compression
         y += pageH;
       }
       pdf.save(`invoice-${invoice?.invoiceNumber || id}.pdf`);

@@ -8,6 +8,7 @@ import { DateRangePicker } from '@/components/common/DateRangePicker';
 import { SortableHeader } from '@/components/common/SortableHeader';
 import { useSortable } from '@/hooks/useSortable';
 import { StatusBadge } from '@/components/common/StatusBadge';
+import { useNavigate } from 'react-router-dom';
 import {
   TrendingUp,
   FileText,
@@ -21,6 +22,7 @@ import {
 const Dashboard = () => {
   const { user } = useAuth();
   const { quotations = [] } = useQuotations();
+  const navigate = useNavigate();
   const [clientsCount, setClientsCount] = useState(0);
   const [enquiries, setEnquiries] = useState<Enquiry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -34,9 +36,10 @@ const Dashboard = () => {
         setIsLoading(true);
         setError(null);
 
-        const today = new Date().toISOString().split('T')[0];
-        setFromDate(today);
-        setToDate(today);
+        // Don't set default dates - show all data by default
+        // const today = new Date().toISOString().split('T')[0];
+        // setFromDate(today);
+        // setToDate(today);
 
         const [customers, enqs] = await Promise.all([
           customerService.getAll(),
@@ -100,7 +103,8 @@ const Dashboard = () => {
   const filteredRevenue = filteredSales.reduce((sum, q) => sum + q.grandTotal, 0);
 
   const isToday = fromDate === toDate && fromDate === new Date().toISOString().split('T')[0];
-  const dateLabel = isToday ? "Today's" : "Filtered";
+  const hasDateFilter = fromDate || toDate;
+  const dateLabel = !hasDateFilter ? "All" : isToday ? "Today's" : "Filtered";
 
   const stats = [
     {
@@ -109,6 +113,7 @@ const Dashboard = () => {
       sub: 'New leads added',
       icon: ClipboardList,
       color: 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400',
+      route: '/enquiries',
     },
     {
       label: `${dateLabel} Quotations`,
@@ -116,6 +121,7 @@ const Dashboard = () => {
       sub: 'Quotations created',
       icon: FileText,
       color: 'bg-primary/10 text-primary',
+      route: '/quotation-history',
     },
     {
       label: `${dateLabel} Follow-ups`,
@@ -123,6 +129,7 @@ const Dashboard = () => {
       sub: 'Scheduled follow-ups',
       icon: CalendarClock,
       color: 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400',
+      route: '/enquiries',
     },
     {
       label: `${dateLabel} Sales`,
@@ -130,6 +137,7 @@ const Dashboard = () => {
       sub: `₹${filteredRevenue.toLocaleString('en-IN')} revenue`,
       icon: TrendingUp,
       color: 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400',
+      route: '/invoices',
     },
   ];
 
@@ -199,13 +207,15 @@ const Dashboard = () => {
           {stats.map((stat, index) => (
             <div
               key={stat.label}
-              className="card-stat animate-slide-in-up"
+              className="card-stat animate-slide-in-up cursor-pointer hover:shadow-lg hover:-translate-y-1 transition-all duration-200"
               style={{ animationDelay: `${index * 100}ms` }}
+              onClick={() => navigate(stat.route)}
             >
               <div className="flex items-start justify-between mb-4">
                 <div className={`p-3 rounded-xl ${stat.color}`}>
                   <stat.icon size={24} />
                 </div>
+                <ArrowUpRight size={16} className="text-muted-foreground" />
               </div>
               <p className="text-3xl font-bold text-foreground">{stat.value}</p>
               <p className="text-sm font-medium text-foreground mt-1">{stat.label}</p>

@@ -3,12 +3,10 @@ import { TopBar } from '@/components/layout/TopBar';
 import { useAuth } from '@/contexts/AuthContext';
 import { useQuotations } from '@/contexts/QuotationContext';
 import { toast } from 'sonner';
-import html2canvas from 'html2canvas';
-import jsPDF from 'jspdf';
 import { DateRangePicker } from '@/components/common/DateRangePicker';
 import { ExportButton } from '@/components/common/ExportButton';
 import { exportToExcel, formatDateForExcel, formatCurrencyForExcel } from '@/utils/excelExport';
-import { History, Eye, Download, Edit, Trash2, X, Save, ChevronDown, Loader2 } from 'lucide-react';
+import { History, Eye, Download, Edit, Trash2, X, Save, ChevronDown, Loader2, Copy, Edit2 } from 'lucide-react';
 import api from '@/services/api';
 import { SearchBar } from '@/components/common/SearchBar';
 import { Pagination } from '@/components/common/Pagination';
@@ -17,11 +15,13 @@ import { SortableHeader } from '@/components/common/SortableHeader';
 import { useSortable } from '@/hooks/useSortable';
 import { StatusBadge } from '@/components/common/StatusBadge';
 import QuotationPrintView from '@/components/common/QuotationPrintView';
+import { useNavigate } from 'react-router-dom';
 
 const ITEMS_PER_PAGE = 10;
 
 const QuotationHistory = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const { quotations, updateQuotation, deleteQuotation, refreshQuotations } = useQuotations();
   const [viewingQuotation, setViewingQuotation] = useState<any>(null);
   const [editingQuotation, setEditingQuotation] = useState<any>(null);
@@ -34,6 +34,7 @@ const QuotationHistory = () => {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [isPdfCapturing, setIsPdfCapturing] = useState(false);
   const printRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -136,6 +137,21 @@ const QuotationHistory = () => {
     setShowStatusDropdown(false);
   };
 
+  const handleEditItems = (q: any) => {
+    sessionStorage.setItem('editingQuotation', JSON.stringify(q));
+    navigate('/new-quotation?mode=edit&id=' + q.id);
+  };
+
+  const handleDuplicate = async (q: any) => {
+    try {
+      const response = await api.post(`/api/quotations/${q.id}/duplicate`);
+      toast.success(`Quotation duplicated! New quotation #${response.data.id} created in DRAFT status. You can now edit it.`);
+      refreshQuotations();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Failed to duplicate quotation');
+    }
+  };
+
   const handleSaveEdit = async () => {
     if (!editingQuotation) return;
     try {
@@ -152,34 +168,147 @@ const QuotationHistory = () => {
     }
   };
 
+  // Download PDF using html2canvas with smart page-break detection.
+  // Measures actual DOM row positions to ensure no row is ever split mid-page.
   const downloadPDF = async (quotation?: any) => {
     const target = quotation || viewingQuotation;
     if (!target) return;
-    if (!viewingQuotation) {
-      setViewingQuotation(target);
-      await new Promise(r => setTimeout(r, 400));
-    }
-    if (!printRef.current) { toast.error('Could not render quotation'); return; }
+
     try {
       setDownloading(true);
-      const canvas = await html2canvas(printRef.current, {
-        scale: 2, useCORS: true, allowTaint: true, backgroundColor: '#ffffff', logging: false,
-      });
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'px', format: 'a4' });
-      const pw = pdf.internal.pageSize.getWidth();
-      const ph = (canvas.height * pw) / canvas.width;
-      const pageH = pdf.internal.pageSize.getHeight();
-      let y = 0;
-      while (y < ph) {
-        if (y > 0) pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 0, -y, pw, ph);
-        y += pageH;
+
+      if (printRef.current && viewingQuotation && (!quotation || quotation.id === viewingQuotation.id)) {
+        const html2canvas = (await import('html2canvas')).default;
+        const { jsPDF }   = await import('jspdf');
+
+        // 1. Hide watermark during capture
+        setIsPdfCapturing(true);
+        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+        // 2. Wait until all product images are decoded
+        await new Promise<void>((resolve) => {
+          const el = printRef.current!;
+          const check = () => {
+            if (el.getAttribute('data-images-ready') === 'true') { resolve(); return; }
+            setTimeout(check, 80);
+          };
+          check();
+        });
+
+        // 3. Scroll to top
+        const scrollContainer = printRef.current.closest('.overflow-y-auto');
+        if (scrollContainer) scrollContainer.scrollTop = 0;
+        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+        const rootEl = printRef.current;
+
+        // 4. Measure safe page-break positions.
+        //    A4 at 794px wide = 1123px tall (794 * 297/210).
+        //    We work in screen pixels (scale=1) then multiply for canvas coords.
+        const pxPerMm    = rootEl.offsetWidth / 210;          // px per mm at screen scale
+        const pageHeightPx = 297 * pxPerMm;                   // A4 height in px
+        const rootTop    = rootEl.getBoundingClientRect().top + window.scrollY;
+
+        // Collect all table rows in the product table — these must never be split
+        const tableRows = Array.from(rootEl.querySelectorAll('tbody tr')) as HTMLElement[];
+
+        // Build list of "forbidden zones": [rowTop, rowBottom] in component-relative px
+        const forbiddenZones = tableRows.map(row => {
+          const rect = row.getBoundingClientRect();
+          const top    = rect.top    + window.scrollY - rootTop;
+          const bottom = rect.bottom + window.scrollY - rootTop;
+          return { top, bottom };
+        });
+
+        // Calculate smart page break positions:
+        // Start with natural A4 breaks, then push each break to avoid splitting a row
+        const totalHeightPx = rootEl.scrollHeight;
+        const naturalBreaks: number[] = [];
+        for (let y = pageHeightPx; y < totalHeightPx; y += pageHeightPx) {
+          naturalBreaks.push(y);
+        }
+
+        const smartBreaks: number[] = naturalBreaks.map(breakY => {
+          // Check if this break falls inside any row
+          for (const zone of forbiddenZones) {
+            if (breakY > zone.top && breakY < zone.bottom) {
+              // Push break UP to just before this row starts
+              return zone.top - 4; // 4px margin above row
+            }
+          }
+          return breakY;
+        });
+
+        // 5. Capture the full canvas
+        const SCALE = 2;
+        const canvas = await html2canvas(rootEl, {
+          scale: SCALE,
+          useCORS: true,
+          allowTaint: true,
+          backgroundColor: '#ffffff',
+          logging: false,
+          imageTimeout: 30000,
+          windowHeight: totalHeightPx,
+          height: totalHeightPx,
+          y: 0,
+          onclone: (_doc, clonedEl) => {
+            clonedEl.querySelectorAll('img').forEach((img: HTMLImageElement) => {
+              img.style.display      = 'block';
+              img.style.visibility   = 'visible';
+              img.style.opacity      = '1';
+            });
+          },
+        });
+
+        // 6. Build PDF: slice canvas at smart break positions
+        const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+        const pdfPageW = pdf.internal.pageSize.getWidth();   // 210mm
+        const pdfPageH = pdf.internal.pageSize.getHeight();  // 297mm
+
+        // Convert smart breaks from screen-px to canvas-px
+        const canvasBreaks = smartBreaks.map(b => Math.round(b * SCALE));
+        const canvasTotal  = canvas.height;
+
+        // Build slice boundaries: [0, break1, break2, ..., totalHeight]
+        const sliceStarts  = [0, ...canvasBreaks];
+        const sliceEnds    = [...canvasBreaks, canvasTotal];
+
+        for (let i = 0; i < sliceStarts.length; i++) {
+          const sliceTop    = sliceStarts[i];
+          const sliceBottom = sliceEnds[i];
+          const sliceH      = sliceBottom - sliceTop;
+
+          if (sliceH <= 0) continue;
+
+          // Create an offscreen canvas for this slice
+          const sliceCanvas = document.createElement('canvas');
+          sliceCanvas.width  = canvas.width;
+          sliceCanvas.height = sliceH;
+          const ctx = sliceCanvas.getContext('2d')!;
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, sliceCanvas.width, sliceH);
+          ctx.drawImage(canvas, 0, sliceTop, canvas.width, sliceH, 0, 0, canvas.width, sliceH);
+
+          const sliceData   = sliceCanvas.toDataURL('image/jpeg', 0.93);
+          // Height of this slice in mm
+          const sliceHeightMm = (sliceH / SCALE) * (pdfPageW / rootEl.offsetWidth);
+
+          if (i > 0) pdf.addPage();
+          pdf.addImage(sliceData, 'JPEG', 0, 0, pdfPageW, sliceHeightMm);
+        }
+
+        pdf.save(`quotation-${target.quotationNumber || target.id}.pdf`);
+        setIsPdfCapturing(false);
+        toast.success('PDF downloaded successfully');
+        return;
       }
-      pdf.save(`quotation-${target.quotationNumber || target.id}.pdf`);
-      toast.success('PDF downloaded');
+
+      // Fallback: open the view modal
+      setViewingQuotation(target);
+      toast.info('Click "Download PDF" in the view modal');
     } catch (err) {
-      console.error(err);
+      console.error('PDF generation failed:', err);
+      setIsPdfCapturing(false);
       toast.error('Failed to generate PDF');
     } finally {
       setDownloading(false);
@@ -188,7 +317,7 @@ const QuotationHistory = () => {
 
   return (
     <div className="min-h-screen">
-      <TopBar title="Quotation History" />
+      <TopBar title="Quotation record" />
       <div className="p-6 space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -198,13 +327,32 @@ const QuotationHistory = () => {
               <h2 className="text-xl font-semibold text-foreground">
                 {isSuperAdmin ? 'All Quotations' : 'My Quotations'}
               </h2>
-              <p className="text-sm text-muted-foreground">View and manage your quotation history</p>
+              <p className="text-sm text-muted-foreground">View and manage your Quotation record</p>
             </div>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
             <SearchBar value={searchTerm} onChange={setSearchTerm} placeholder="Search quotations..." className="w-64" />
             <DateRangePicker fromDate={fromDate} toDate={toDate} onFromDateChange={setFromDate} onToDateChange={setToDate} label="Filter by Date" />
             <ExportButton onClick={handleExportToExcel} disabled={!filteredQuotations.length} count={filteredQuotations.length} />
+          </div>
+        </div>
+
+        {/* Workflow Info Banner */}
+        <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+          <div className="flex items-start gap-3">
+            <div className="p-2 bg-blue-100 dark:bg-blue-900 rounded-lg">
+              <svg className="w-5 h-5 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <div className="flex-1">
+              <h4 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-1">Quotation Workflow Guide</h4>
+              <div className="text-xs text-blue-800 dark:text-blue-200 space-y-1">
+                <p><strong>DRAFT:</strong> Click <strong>Edit Items</strong> (✏️ blue icon) to modify items/prices</p>
+                <p><strong>GENERATED/SENT/APPROVED:</strong> Cannot edit items (maintains audit trail). Use <strong>Duplicate & Edit</strong> (📋 icon) to create a revision</p>
+                <p><strong>Duplicate & Edit:</strong> Creates a new quotation with a new number, preserving the original for records</p>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -250,8 +398,24 @@ const QuotationHistory = () => {
                             <button onClick={() => setViewingQuotation(q)} className="p-1.5 rounded-lg hover:bg-muted transition-colors" title="View">
                               <Eye size={15} className="text-muted-foreground" />
                             </button>
-                            <button onClick={() => handleEdit(q)} className="p-1.5 rounded-lg hover:bg-muted transition-colors" title="Edit">
-                              <Edit size={15} className="text-muted-foreground" />
+                            {q.status.toLowerCase() === 'draft' && (
+                              <button
+                                onClick={() => handleEditItems(q)}
+                                className="p-1.5 rounded-lg hover:bg-muted transition-colors"
+                                title="Edit Items & Prices"
+                              >
+                                <Edit2 size={15} className="text-blue-600" />
+                              </button>
+                            )}
+                            <button onClick={() => handleEdit(q)} className="p-1.5 rounded-lg hover:bg-muted transition-colors" title="Change Status">
+                              <ChevronDown size={15} className="text-muted-foreground" />
+                            </button>
+                            <button
+                              onClick={() => handleDuplicate(q)}
+                              className="p-1.5 rounded-lg hover:bg-muted transition-colors"
+                              title="Duplicate & Edit"
+                            >
+                              <Copy size={15} className="text-muted-foreground" />
                             </button>
                             <button onClick={() => downloadPDF(q)} disabled={downloading} className="p-1.5 rounded-lg hover:bg-muted transition-colors" title="Download PDF">
                               {downloading
@@ -307,7 +471,7 @@ const QuotationHistory = () => {
             </div>
             <div className="overflow-y-auto flex-1 bg-gray-100 p-4">
               <div className="mx-auto shadow-lg">
-                <QuotationPrintView ref={printRef} quotation={viewingQuotation} />
+                <QuotationPrintView ref={printRef} quotation={viewingQuotation} forPdf={isPdfCapturing} />
               </div>
             </div>
           </div>
@@ -319,7 +483,7 @@ const QuotationHistory = () => {
         <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-card rounded-xl shadow-lg border border-border max-w-lg w-full">
             <div className="p-6 border-b border-border flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-foreground">Edit Quotation {editingQuotation.id}</h3>
+              <h3 className="text-lg font-semibold text-foreground">Change Status - Quotation {editingQuotation.id}</h3>
               <button onClick={() => setEditingQuotation(null)} className="p-2 rounded-lg hover:bg-muted transition-colors">
                 <X size={20} />
               </button>

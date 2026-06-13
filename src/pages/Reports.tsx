@@ -32,7 +32,11 @@ const Reports = () => {
     if (!isAdminOrAbove) { setLoading(false); return; }
     reportsService.getStaffSummary()
       .then(setStaffData)
-      .catch(() => toast.error('Failed to load staff summary'))
+      .catch((error) => {
+        console.error('Staff summary error:', error);
+        const errorMsg = error?.response?.data?.message || error?.message || 'Failed to load staff summary';
+        toast.error(errorMsg);
+      })
       .finally(() => setLoading(false));
   }, []);
 

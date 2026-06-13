@@ -61,20 +61,20 @@ export interface Quotation {
 // Menu permissions for role-based access control
 export const menuPermissions: Record<string, string[]> = {
   super_admin: [
-    'dashboard', 'master_settings', 'company_master', 'sms_template',
+    'dashboard', 'master_settings', 'company_master',
     'add_product', 'enquiry_management', 'client_details',
     'new_quotation', 'quotation_history', 'new_invoice',
     'invoice_management', 'reports', 'user_management',
   ],
   superadmin: [
-    'dashboard', 'master_settings', 'company_master', 'sms_template',
+    'dashboard', 'master_settings', 'company_master',
     'add_product', 'enquiry_management', 'client_details',
     'new_quotation', 'quotation_history', 'new_invoice',
     'invoice_management', 'reports', 'user_management',
   ],
   // CLIENT = company owner — sees everything except company_master
   client: [
-    'dashboard', 'master_settings', 'sms_template',
+    'dashboard', 'master_settings',
     'add_product', 'enquiry_management', 'client_details',
     'new_quotation', 'quotation_history', 'new_invoice',
     'invoice_management', 'reports', 'user_management',
@@ -86,7 +86,7 @@ export const menuPermissions: Record<string, string[]> = {
   ],
   // admin = alias for client
   admin: [
-    'dashboard', 'master_settings', 'sms_template',
+    'dashboard', 'master_settings',
     'add_product', 'enquiry_management', 'client_details',
     'new_quotation', 'quotation_history', 'new_invoice',
     'invoice_management', 'reports', 'user_management',

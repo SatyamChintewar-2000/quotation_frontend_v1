@@ -62,7 +62,9 @@ export interface Invoice {
 }
 
 export interface InvoiceRequest {
-  quotationId: number;
+  quotationId?: number; // Optional for direct invoices
+  customerId?: number; // Required for direct invoices
+  customerName?: string; // Optional for direct invoices
   invoiceDate: string;
   dueDate: string;
   discountPercentage?: number;
@@ -75,6 +77,12 @@ const invoiceService = {
   // Create invoice from quotation
   createInvoice: async (data: InvoiceRequest): Promise<Invoice> => {
     const response = await api.post('/api/invoices', data);
+    return response.data;
+  },
+
+  // Create direct invoice (without quotation)
+  createDirectInvoice: async (data: InvoiceRequest): Promise<Invoice> => {
+    const response = await api.post('/api/invoices/direct', data);
     return response.data;
   },
 

@@ -39,6 +39,7 @@ export interface ProductRequest {
   taxPercentage?: number;
   expiryDate?: string;
   imagePath?: string;
+  companyId?: number; // Required for SUPER_ADMIN
 }
 
 export const productService = {

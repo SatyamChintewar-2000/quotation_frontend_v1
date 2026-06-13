@@ -6,6 +6,11 @@ import { useAuth } from './AuthContext';
 interface QuotationItem {
   productId: string;
   productName: string;
+  productNameSnapshot?: string;
+  productDescription?: string;
+  productDescriptionSnapshot?: string;
+  imagePath?: string;
+  imagePathSnapshot?: string;
   price: number;
   quantity: number;
   discount: number;
@@ -13,11 +18,28 @@ interface QuotationItem {
   subtotal: number;
 }
 
+interface QuotationService {
+  serviceName: string;
+  servicePrice: number;
+  serviceTax: number;
+}
+
 interface Quotation {
   id: string;
   clientId: string;
   clientName: string;
+  customerName?: string;
+  customerPhone?: string;
+  customerAddress?: string;
+  quotationNumber?: string;
+  quotationDate?: string;
+  deliveryDate?: string;
+  executiveName?: string;
+  quotationCode?: string;
+  notes?: string;
+  termsAndConditions?: string;
   items: QuotationItem[];
+  services?: QuotationService[];
   subtotal: number;
   totalDiscount: number;
   totalGst: number;
@@ -25,6 +47,7 @@ interface Quotation {
   createdAt: string;
   status: string;
   createdBy: string;
+  hideServiceChargesOnPdf?: boolean;
 }
 
 interface QuotationContextType {
@@ -45,14 +68,37 @@ const mapAPIQuotationToQuotation = (apiQuotation: APIQuotation): Quotation => ({
   id: apiQuotation.id.toString(),
   clientId: apiQuotation.customerId.toString(),
   clientName: apiQuotation.customerName || '',
+  customerName: apiQuotation.customerName || '',
+  customerPhone: (apiQuotation as any).customerPhone || '',
+  customerAddress: (apiQuotation as any).customerAddress || '',
+  quotationNumber: (apiQuotation as any).quotationNumber || '',
+  quotationDate: (apiQuotation as any).quotationDate || '',
+  deliveryDate: (apiQuotation as any).deliveryDate || '',
+  executiveName: (apiQuotation as any).executiveName || '',
+  quotationCode: (apiQuotation as any).quotationCode || '',
+  notes: (apiQuotation as any).notes || '',
+  termsAndConditions: (apiQuotation as any).termsAndConditions || '',
   items: apiQuotation.items.map(item => ({
     productId: item.productId.toString(),
     productName: item.productName || '',
+    productNameSnapshot: item.productNameSnapshot,
+    productDescription: item.productDescription,
+    productDescriptionSnapshot: item.productDescriptionSnapshot,
+    imagePath: item.imagePath,
+    imagePathSnapshot: item.imagePathSnapshot,
     price: Number(item.unitPrice),
+    unitPrice: Number(item.unitPrice),
     quantity: item.quantity,
     discount: Number(item.discountPercentage),
+    discountPercentage: Number(item.discountPercentage),
     gst: Number(item.taxPercentage),
+    taxPercentage: Number(item.taxPercentage),
     subtotal: Number(item.itemTotal),
+  })),
+  services: ((apiQuotation as any).services || []).map((s: any) => ({
+    serviceName: s.serviceName || '',
+    servicePrice: Number(s.servicePrice) || 0,
+    serviceTax: Number(s.serviceTax) || 0,
   })),
   subtotal: Number(apiQuotation.subtotal),
   totalDiscount: Number(apiQuotation.totalDiscount),
@@ -61,6 +107,7 @@ const mapAPIQuotationToQuotation = (apiQuotation: APIQuotation): Quotation => ({
   createdAt: apiQuotation.createdAt,
   status: apiQuotation.status.toLowerCase(),
   createdBy: apiQuotation.createdBy?.toString() || '',
+  hideServiceChargesOnPdf: (apiQuotation as any).hideServiceChargesOnPdf === true,
 });
 
 export const QuotationProvider = ({ children }: { children: ReactNode }) => {

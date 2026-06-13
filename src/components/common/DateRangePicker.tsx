@@ -20,7 +20,7 @@ const diffDays = (from: string, to: string): number => {
 
 const validate = (from: string, to: string): string => {
   if (from && to && from > to) return '"From" date cannot be after "To" date';
-  if (from && to && diffDays(from, to) > 30) return 'Date range cannot exceed 30 days';
+  // Removed 30-day restriction - users can select any date range
   return '';
 };
 

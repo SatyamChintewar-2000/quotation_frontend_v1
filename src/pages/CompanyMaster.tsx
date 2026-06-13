@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { TopBar } from '@/components/layout/TopBar';
-import { Plus, Edit, Trash2, Building2, Mail, Phone, MapPin, ToggleLeft, ToggleRight } from 'lucide-react';
+import { Plus, Edit, Trash2, Building2, Mail, Phone, MapPin, ToggleLeft, ToggleRight, Landmark, Upload, X, Image as ImageIcon, Shield } from 'lucide-react';
 import { companyService, Company } from '@/services/companyService';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
@@ -17,6 +17,14 @@ interface CompanyFormData {
   phone: string;
   email: string;
   gstNumber: string;
+  logo: string;
+  termsAndConditions: string;
+  // Bank details
+  bankName: string;
+  accountNumber: string;
+  ifscCode: string;
+  branchName: string;
+  upiId: string;
 }
 
 interface FormErrors {
@@ -42,7 +50,15 @@ const CompanyManagement = () => {
     phone: '',
     email: '',
     gstNumber: '',
+    logo: '',
+    termsAndConditions: '',
+    bankName: '',
+    accountNumber: '',
+    ifscCode: '',
+    branchName: '',
+    upiId: '',
   });
+  const [logoPreview, setLogoPreview] = useState<string>('');
 
   useEffect(() => {
     fetchCompanies();
@@ -151,17 +167,65 @@ const CompanyManagement = () => {
       phone: company.phone || '',
       email: company.email || '',
       gstNumber: company.gstNumber || '',
+      logo: company.logo || '',
+      termsAndConditions: company.termsAndConditions || '',
+      bankName: company.bankName || '',
+      accountNumber: company.accountNumber || '',
+      ifscCode: company.ifscCode || '',
+      branchName: company.branchName || '',
+      upiId: company.upiId || '',
     };
     setFormData(data);
     setOriginalData(data);
+    setLogoPreview(company.logo || '');
     setShowModal(true);
   };
 
   const resetForm = () => {
     setEditingCompany(null);
     setOriginalData(null);
-    setFormData({ companyName: '', address: '', phone: '', email: '', gstNumber: '' });
+    setFormData({ 
+      companyName: '', 
+      address: '', 
+      phone: '', 
+      email: '', 
+      gstNumber: '',
+      logo: '',
+      termsAndConditions: '',
+      bankName: '',
+      accountNumber: '',
+      ifscCode: '',
+      branchName: '',
+      upiId: '',
+    });
     setFormErrors({});
+    setLogoPreview('');
+  };
+
+  const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 2 * 1024 * 1024) {
+        toast.error('Logo size should be less than 2MB');
+        return;
+      }
+      if (!file.type.startsWith('image/')) {
+        toast.error('Please upload an image file');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64 = reader.result as string;
+        setFormData({ ...formData, logo: base64 });
+        setLogoPreview(base64);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleRemoveLogo = () => {
+    setFormData({ ...formData, logo: '' });
+    setLogoPreview('');
   };
 
   const handleCloseModal = () => {
@@ -221,8 +285,14 @@ const CompanyManagement = () => {
                       <h3 className="font-semibold text-foreground truncate leading-tight">
                         {company.companyName}
                       </h3>
-                      <div className="mt-1">
+                      <div className="mt-1 flex items-center gap-2 flex-wrap">
                         <StatusBadge status={company.active ? 'active' : 'inactive'} />
+                        {company.licenseId && (
+                          <span className="inline-flex items-center gap-1 font-mono text-xs font-bold text-blue-700 dark:text-blue-400 tracking-wide bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 px-2 py-0.5 rounded-md">
+                            <Shield size={10} />
+                            {company.licenseId}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -288,6 +358,12 @@ const CompanyManagement = () => {
                     <span className="text-muted-foreground font-mono text-xs">{company.gstNumber}</span>
                   </div>
                 )}
+                {(company.bankName || company.accountNumber) && (
+                  <div className="flex items-center gap-2.5 text-sm pt-1">
+                    <Landmark size={14} className="flex-shrink-0 text-primary/60" />
+                    <span className="text-muted-foreground text-xs">Bank details configured</span>
+                  </div>
+                )}
               </div>
             </div>
           ))}
@@ -304,7 +380,7 @@ const CompanyManagement = () => {
       {/* Add/Edit Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-card rounded-xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+          <div className="bg-card rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b border-border">
               <h3 className="text-xl font-semibold text-foreground">
                 {editingCompany ? 'Edit Company' : 'Add New Company'}
@@ -312,6 +388,57 @@ const CompanyManagement = () => {
             </div>
             
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
+              {/* Logo Upload Section */}
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">
+                  Company Logo
+                  <span className="ml-2 text-xs font-normal text-muted-foreground">(Max 2MB, appears in PDFs)</span>
+                </label>
+                <div className="flex items-start gap-4">
+                  {/* Logo Preview */}
+                  <div className="flex-shrink-0">
+                    {logoPreview ? (
+                      <div className="relative group">
+                        <img
+                          src={logoPreview}
+                          alt="Company Logo"
+                          className="w-32 h-32 object-contain border-2 border-border rounded-lg bg-muted p-2"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleRemoveLogo}
+                          className="absolute -top-2 -right-2 p-1 bg-destructive text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                          title="Remove logo"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="w-32 h-32 border-2 border-dashed border-border rounded-lg flex items-center justify-center bg-muted">
+                        <ImageIcon size={32} className="text-muted-foreground" />
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Upload Button */}
+                  <div className="flex-1">
+                    <label className="btn-secondary cursor-pointer inline-flex items-center gap-2">
+                      <Upload size={16} />
+                      {logoPreview ? 'Change Logo' : 'Upload Logo'}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleLogoChange}
+                        className="hidden"
+                      />
+                    </label>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Recommended: Square image (500x500px) in PNG or JPG format
+                    </p>
+                  </div>
+                </div>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-foreground mb-2">Company Name *</label>
                 <input
@@ -409,6 +536,101 @@ const CompanyManagement = () => {
                     <p className="text-xs text-muted-foreground mt-1">{formData.gstNumber.length}/15 characters</p>
                   )
                 }
+              </div>
+
+              {/* Terms and Conditions */}
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">
+                  Terms and Conditions
+                  <span className="ml-2 text-xs font-normal text-muted-foreground">(appears in quotation/invoice PDFs)</span>
+                </label>
+                <textarea
+                  value={formData.termsAndConditions}
+                  onChange={(e) => setFormData({ ...formData, termsAndConditions: e.target.value })}
+                  className="input-field"
+                  rows={4}
+                  placeholder="Enter terms and conditions for quotations and invoices..."
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  These terms will appear at the bottom of all quotation and invoice PDFs
+                </p>
+              </div>
+
+              {/* Bank & Payment Details Section */}
+              <div className="pt-4 border-t border-border">
+                <h4 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+                  <Landmark size={16} className="text-primary" />
+                  Bank & Payment Details
+                  <span className="text-xs font-normal text-muted-foreground">(for quotation/invoice PDFs)</span>
+                </h4>
+                
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-2">Bank Name</label>
+                    <input
+                      type="text"
+                      value={formData.bankName}
+                      onChange={(e) => setFormData({ ...formData, bankName: e.target.value })}
+                      className="input-field"
+                      placeholder="e.g., State Bank of India"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-2">Account Number</label>
+                    <input
+                      type="text"
+                      value={formData.accountNumber}
+                      onChange={(e) => setFormData({ ...formData, accountNumber: e.target.value })}
+                      className="input-field font-mono"
+                      placeholder="e.g., 1234567890123456"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-2">IFSC Code</label>
+                      <input
+                        type="text"
+                        value={formData.ifscCode}
+                        onChange={(e) => setFormData({ ...formData, ifscCode: e.target.value.toUpperCase() })}
+                        className="input-field font-mono"
+                        placeholder="e.g., SBIN0001234"
+                        maxLength={11}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-2">Branch Name</label>
+                      <input
+                        type="text"
+                        value={formData.branchName}
+                        onChange={(e) => setFormData({ ...formData, branchName: e.target.value })}
+                        className="input-field"
+                        placeholder="e.g., Main Branch"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-2">
+                      UPI ID
+                      <span className="ml-2 text-xs font-normal text-muted-foreground">(for QR code generation)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.upiId}
+                      onChange={(e) => setFormData({ ...formData, upiId: e.target.value })}
+                      className="input-field font-mono"
+                      placeholder="e.g., company@paytm or 9876543210@ybl"
+                    />
+                    {formData.upiId && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        💡 This will be used to generate payment QR codes in quotation PDFs
+                      </p>
+                    )}
+                  </div>
+                </div>
               </div>
 
               <div className="flex gap-3 pt-4">

@@ -43,7 +43,7 @@ export interface EnquiryRequest {
 }
 
 export const ENQUIRY_STATUSES = ['open', 'in_progress', 'converted', 'closed'];
-export const ENQUIRY_RATINGS = ['Cold', 'Warm', 'Hot', 'Expected', 'Not Interested'];
+export const ENQUIRY_RATINGS = ['Slightly Interested', 'Interested', 'Not Interested'];
 export const REFER_TYPES = ['Walk-in', 'Reference', 'Online', 'Social Media', 'Advertisement', 'Other'];
 
 export const enquiryService = {

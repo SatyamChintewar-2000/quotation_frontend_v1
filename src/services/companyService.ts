@@ -12,6 +12,21 @@ export interface Company {
   termsAndConditions?: string;
   logo?: string;
   active?: boolean;
+  // Bank details
+  bankName?: string;
+  accountNumber?: string;
+  ifscCode?: string;
+  branchName?: string;
+  upiId?: string;
+  // Feature 1: PDF Theme
+  pdfThemeName?: string;
+  pdfAccentColor?: string;
+  pdfWatermarkEnabled?: boolean;
+  pdfWatermarkOpacity?: number;
+  // Company name is controlled by Super Admin only — read-only for clients
+  companyNameLocked?: boolean;
+  // License ID — auto-generated on creation, never changes
+  licenseId?: string;
 }
 
 export interface CompanyRequest {
@@ -24,6 +39,17 @@ export interface CompanyRequest {
   city?: string;
   termsAndConditions?: string;
   logo?: string;
+  // Bank details
+  bankName?: string;
+  accountNumber?: string;
+  ifscCode?: string;
+  branchName?: string;
+  upiId?: string;
+  // Feature 1: PDF Theme
+  pdfThemeName?: string;
+  pdfAccentColor?: string;
+  pdfWatermarkEnabled?: boolean;
+  pdfWatermarkOpacity?: number;
 }
 
 export const companyService = {

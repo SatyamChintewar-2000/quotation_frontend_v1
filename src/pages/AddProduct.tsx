@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { TopBar } from '@/components/layout/TopBar';
 import { useAuth } from '@/contexts/AuthContext';
 import { useProducts } from '@/contexts/ProductContext';
@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { SearchBar } from '@/components/common/SearchBar';
 import { ExportButton } from '@/components/common/ExportButton';
 import { exportToExcel, formatDateForExcel, formatCurrencyForExcel } from '@/utils/excelExport';
+import { companyService } from '@/services/companyService';
 import {
   Package,
   Upload,
@@ -16,6 +17,7 @@ import {
   FileText,
   Hash,
   Scale,
+  Building2,
 } from 'lucide-react';
 
 interface ProductFormData {
@@ -29,6 +31,7 @@ interface ProductFormData {
   expiryDate: string;
   description: string;
   image: string;
+  companyId: string; // For SUPER_ADMIN
 }
 
 const initialFormData: ProductFormData = {
@@ -42,6 +45,7 @@ const initialFormData: ProductFormData = {
   expiryDate: '',
   description: '',
   image: '',
+  companyId: '',
 };
 
 const AddProduct = () => {
@@ -51,6 +55,15 @@ const AddProduct = () => {
   const [errors, setErrors] = useState<Partial<ProductFormData>>({});
   const [imagePreview, setImagePreview] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [companies, setCompanies] = useState<{ id: number; companyName: string }[]>([]);
+
+  const isSuperAdmin = user?.role === 'superadmin' || user?.role === 'SUPER_ADMIN';
+
+  useEffect(() => {
+    if (isSuperAdmin) {
+      companyService.getAll().then(setCompanies).catch(() => {});
+    }
+  }, [isSuperAdmin]);
 
   const units = ['piece', 'kg', 'litre', 'meter', 'box', 'set', 'dozen'];
   const taxTypes = ['GST', 'IGST', 'No Tax'];
@@ -100,6 +113,8 @@ const AddProduct = () => {
     if (!formData.quantity || parseInt(formData.quantity) < 0)
       newErrors.quantity = 'Valid quantity is required';
     if (!formData.expiryDate) newErrors.expiryDate = 'Expiry date is required';
+    if (isSuperAdmin && !formData.companyId)
+      newErrors.companyId = 'Please select a company';
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -137,6 +152,7 @@ const AddProduct = () => {
         description: formData.description,
         image: formData.image,
         createdBy: user?.id || '',
+        companyId: isSuperAdmin && formData.companyId ? Number(formData.companyId) : undefined,
       });
       handleClear();
     } catch {
@@ -218,6 +234,39 @@ const AddProduct = () => {
               </div>
 
               <form onSubmit={handleSubmit} className="space-y-6">
+                {/* Company Selector - SUPER_ADMIN only */}
+                {isSuperAdmin && (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-foreground">
+                      Company *
+                    </label>
+                    <div className="relative">
+                      <Building2
+                        size={18}
+                        className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground"
+                      />
+                      <select
+                        name="companyId"
+                        value={formData.companyId}
+                        onChange={handleInputChange}
+                        className={`input-field pl-11 appearance-none cursor-pointer ${
+                          errors.companyId ? 'border-destructive focus:ring-destructive' : ''
+                        }`}
+                      >
+                        <option value="">Select a company</option>
+                        {companies.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.companyName}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    {errors.companyId && (
+                      <p className="text-sm text-destructive">{errors.companyId}</p>
+                    )}
+                  </div>
+                )}
+
                 {/* Product Name */}
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-foreground">

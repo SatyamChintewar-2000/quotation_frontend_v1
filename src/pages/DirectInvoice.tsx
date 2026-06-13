@@ -1,18 +1,17 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { useAuth } from '@/contexts/AuthContext';
 import { customerService, Customer } from '@/services/customerService';
 import { productService, Product } from '@/services/productService';
-import { quotationService, QuotationServiceItem } from '@/services/quotationService';
+import invoiceService from '@/services/invoiceService';
 import { toast } from 'sonner';
 import {
   FileText, Users, Package, Plus, Minus, Trash2, Save,
-  Calculator, AlertTriangle, FileSignature, ChevronDown,
-  Search, X, Wrench, Calendar, User,
+  Calculator, AlertTriangle, ChevronDown, Search, X, Calendar, ArrowLeft,
 } from 'lucide-react';
 
-interface QuotationItemForm {
+interface InvoiceItemForm {
   productId: number;
   productName: string;
   quantity: number;
@@ -23,20 +22,9 @@ interface QuotationItemForm {
   taxInput: string;
 }
 
-interface ServiceForm {
-  serviceName: string;
-  servicePrice: number;
-  serviceTax: number;
-  servicePriceInput: string;
-  serviceTaxInput: string;
-}
-
-const NewQuotation = () => {
+const DirectInvoice = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const isEditMode = searchParams.get('mode') === 'edit';
-  const editingId = searchParams.get('id');
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -45,17 +33,13 @@ const NewQuotation = () => {
 
   // Form state
   const [selectedCustomerId, setSelectedCustomerId] = useState<number>(0);
-  const [quotationDate, setQuotationDate] = useState(new Date().toISOString().split('T')[0]);
-  const [quotationCode, setQuotationCode] = useState('');
-  const [deliveryDate, setDeliveryDate] = useState('');
-  const [executiveName, setExecutiveName] = useState('');
+  const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().split('T')[0]);
+  const [dueDate, setDueDate] = useState(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
   const [notes, setNotes] = useState('');
   const [termsAndConditions, setTermsAndConditions] = useState('');
-  const [quotationDiscountPercentage, setQuotationDiscountPercentage] = useState(0);
+  const [invoiceDiscountPercentage, setInvoiceDiscountPercentage] = useState(0);
   const [discountInput, setDiscountInput] = useState('0');
-  const [quotationItems, setQuotationItems] = useState<QuotationItemForm[]>([]);
-  const [services, setServices] = useState<ServiceForm[]>([]);
-  const [hideServiceChargesOnPdf, setHideServiceChargesOnPdf] = useState(false);
+  const [invoiceItems, setInvoiceItems] = useState<InvoiceItemForm[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
 
   // Customer dropdown
@@ -65,23 +49,6 @@ const NewQuotation = () => {
 
   useEffect(() => {
     loadData();
-    // Pre-fill executive name from logged-in user
-    if (user?.name) setExecutiveName(user.name);
-    
-    // Load quotation data if in edit mode
-    if (isEditMode) {
-      const storedData = sessionStorage.getItem('editingQuotation');
-      if (storedData) {
-        try {
-          const quotation = JSON.parse(storedData);
-          loadQuotationForEdit(quotation);
-          sessionStorage.removeItem('editingQuotation'); // Clear after loading
-        } catch (err) {
-          console.error('Failed to load quotation for editing:', err);
-          toast.error('Failed to load quotation data');
-        }
-      }
-    }
   }, []);
 
   useEffect(() => {
@@ -109,59 +76,6 @@ const NewQuotation = () => {
     }
   };
 
-  const loadQuotationForEdit = (quotation: any) => {
-    // Set customer
-    setSelectedCustomerId(quotation.customerId || 0);
-    
-    // Set dates
-    if (quotation.quotationDate) {
-      setQuotationDate(new Date(quotation.quotationDate).toISOString().split('T')[0]);
-    }
-    if (quotation.deliveryDate) {
-      setDeliveryDate(new Date(quotation.deliveryDate).toISOString().split('T')[0]);
-    }
-    
-    // Set other fields
-    setQuotationCode(quotation.quotationCode || '');
-    setExecutiveName(quotation.executiveName || user?.name || '');
-    setNotes(quotation.notes || '');
-    setTermsAndConditions(quotation.termsAndConditions || '');
-    setQuotationDiscountPercentage(quotation.discountPercentage || 0);
-    setDiscountInput(String(quotation.discountPercentage || 0));
-    
-    // Load items
-    if (quotation.items && quotation.items.length > 0) {
-      const items = quotation.items.map((item: any) => ({
-        productId: item.productId,
-        productName: item.productName || item.productNameSnapshot || '',
-        quantity: item.quantity || 1,
-        unitPrice: Number(item.unitPrice || item.price || 0),
-        discountPercentage: Number(item.discountPercentage || item.discount || 0),
-        taxPercentage: Number(item.taxPercentage || item.gst || 0),
-        discountInput: String(Number(item.discountPercentage || item.discount || 0)),
-        taxInput: String(Number(item.taxPercentage || item.gst || 0)),
-      }));
-      setQuotationItems(items);
-    }
-    
-    // Load services
-    if (quotation.services && quotation.services.length > 0) {
-      const svcs = quotation.services.map((svc: any) => ({
-        serviceName: svc.serviceName || '',
-        servicePrice: Number(svc.servicePrice || 0),
-        serviceTax: Number(svc.serviceTax || 0),
-        servicePriceInput: String(Number(svc.servicePrice || 0)),
-        serviceTaxInput: String(Number(svc.serviceTax || 0)),
-      }));
-      setServices(svcs);
-    }
-
-    // Load hide service charges flag
-    setHideServiceChargesOnPdf(quotation.hideServiceChargesOnPdf === true);
-
-    toast.success('Quotation loaded for editing');
-  };
-
   const selectedCustomer = customers.find((c) => c.id === selectedCustomerId);
   const filteredCustomers = customers.filter((c) =>
     c.customerName.toLowerCase().includes(customerSearch.toLowerCase()) ||
@@ -170,14 +84,14 @@ const NewQuotation = () => {
   const filteredProducts = products.filter(
     (p) =>
       p.productName.toLowerCase().includes(searchTerm.toLowerCase()) &&
-      !quotationItems.find((qi) => qi.productId === p.id)
+      !invoiceItems.find((ii) => ii.productId === p.id)
   );
 
   // Product item handlers
   const addProduct = (productId: number) => {
     const product = products.find((p) => p.id === productId);
     if (!product) return;
-    setQuotationItems((prev) => [...prev, {
+    setInvoiceItems((prev) => [...prev, {
       productId: product.id,
       productName: product.productName,
       quantity: 1,
@@ -192,114 +106,66 @@ const NewQuotation = () => {
 
   const updateQty = (id: number, qty: number) => {
     if (qty < 1) return;
-    setQuotationItems((prev) => prev.map((i) => i.productId === id ? { ...i, quantity: qty } : i));
+    setInvoiceItems((prev) => prev.map((i) => i.productId === id ? { ...i, quantity: qty } : i));
   };
 
   const updateDiscount = (id: number, val: string) => {
     const num = parseFloat(val);
-    setQuotationItems((prev) => prev.map((i) => i.productId === id
+    setInvoiceItems((prev) => prev.map((i) => i.productId === id
       ? { ...i, discountInput: val, discountPercentage: isNaN(num) ? 0 : Math.min(100, Math.max(0, num)) }
       : i));
   };
 
   const updateTax = (id: number, val: string) => {
     const num = parseFloat(val);
-    setQuotationItems((prev) => prev.map((i) => i.productId === id
+    setInvoiceItems((prev) => prev.map((i) => i.productId === id
       ? { ...i, taxInput: val, taxPercentage: isNaN(num) ? 0 : Math.min(100, Math.max(0, num)) }
       : i));
   };
 
-  const removeItem = (id: number) => setQuotationItems((prev) => prev.filter((i) => i.productId !== id));
-
-  // Service handlers
-  const addService = () => setServices((prev) => [...prev, {
-    serviceName: '', servicePrice: 0, serviceTax: 0,
-    servicePriceInput: '0', serviceTaxInput: '0',
-  }]);
-
-  const updateService = (idx: number, field: keyof ServiceForm, val: string) => {
-    setServices((prev) => prev.map((s, i) => {
-      if (i !== idx) return s;
-      if (field === 'servicePrice') {
-        const num = parseFloat(val) || 0;
-        return { ...s, servicePriceInput: val, servicePrice: Math.max(0, num) };
-      }
-      if (field === 'serviceTax') {
-        const num = parseFloat(val) || 0;
-        // Cap tax at 100% — it's a percentage, not an absolute value
-        const capped = Math.min(100, Math.max(0, num));
-        return { ...s, serviceTaxInput: val, serviceTax: capped };
-      }
-      return { ...s, [field]: val };
-    }));
-  };
-
-  const removeService = (idx: number) => setServices((prev) => prev.filter((_, i) => i !== idx));
+  const removeItem = (id: number) => setInvoiceItems((prev) => prev.filter((i) => i.productId !== id));
 
   // Totals
   const totals = useMemo(() => {
-    const subtotal = quotationItems.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0);
-    const itemDiscounts = quotationItems.reduce((sum, i) => sum + i.unitPrice * i.quantity * i.discountPercentage / 100, 0);
-    const quotationDiscount = subtotal * (quotationDiscountPercentage / 100);
-    const totalDiscount = itemDiscounts + quotationDiscount;
-    const totalTax = quotationItems.reduce((sum, i) => {
+    const subtotal = invoiceItems.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0);
+    const itemDiscounts = invoiceItems.reduce((sum, i) => sum + i.unitPrice * i.quantity * i.discountPercentage / 100, 0);
+    const invoiceDiscount = subtotal * (invoiceDiscountPercentage / 100);
+    const totalDiscount = itemDiscounts + invoiceDiscount;
+    const totalTax = invoiceItems.reduce((sum, i) => {
       const base = i.unitPrice * i.quantity;
       const afterDisc = base - base * i.discountPercentage / 100;
       return sum + afterDisc * i.taxPercentage / 100;
     }, 0);
-    const serviceTotals = services.reduce((sum, s) => {
-      const tax = s.servicePrice * s.serviceTax / 100;
-      return sum + s.servicePrice + tax;
-    }, 0);
-    const grandTotal = subtotal - totalDiscount + totalTax + serviceTotals;
-    return { subtotal, totalDiscount, totalTax, serviceTotals, grandTotal };
-  }, [quotationItems, quotationDiscountPercentage, services]);
+    const grandTotal = subtotal - totalDiscount + totalTax;
+    return { subtotal, totalDiscount, totalTax, grandTotal };
+  }, [invoiceItems, invoiceDiscountPercentage]);
 
-  const saveQuotation = async (status: 'DRAFT' | 'GENERATED' = 'DRAFT') => {
+  const saveInvoice = async () => {
     if (!selectedCustomerId) { toast.error('Please select a customer'); return; }
-    if (quotationItems.length === 0 && services.length === 0) {
-      toast.error('Please add at least one product or service'); return;
+    if (invoiceItems.length === 0) {
+      toast.error('Please add at least one product'); return;
     }
     try {
       setSaving(true);
-      const quotationData = {
+      const result = await invoiceService.createDirectInvoice({
         customerId: selectedCustomerId,
-        quotationDate,
-        quotationCode: quotationCode || undefined,
-        deliveryDate: deliveryDate || undefined,
-        executiveName: executiveName || undefined,
-        status,
+        invoiceDate,
+        dueDate,
         notes,
         termsAndConditions,
-        discountPercentage: quotationDiscountPercentage,
-        items: quotationItems.map((i) => ({
+        discountPercentage: invoiceDiscountPercentage,
+        items: invoiceItems.map((i) => ({
           productId: i.productId,
           quantity: i.quantity,
           unitPrice: i.unitPrice,
           discountPercentage: i.discountPercentage,
           taxPercentage: i.taxPercentage,
         })),
-        services: services.map((s) => ({
-          serviceName: s.serviceName,
-          servicePrice: s.servicePrice,
-          serviceTax: s.serviceTax,
-        })),
-        hideServiceChargesOnPdf,
-      };
-
-      if (isEditMode && editingId) {
-        // Update existing quotation
-        const result = await quotationService.update(Number(editingId), quotationData);
-        toast.success(`Quotation ${result.quotationNumber} updated!`);
-      } else {
-        // Create new quotation
-        const result = await quotationService.create(quotationData);
-        toast.success(`Quotation ${result.quotationNumber} created!`);
-      }
-      
-      setTimeout(() => navigate('/quotation-history'), 1200);
+      });
+      toast.success(`Invoice ${result.invoiceNumber} created!`);
+      setTimeout(() => navigate('/invoices'), 1200);
     } catch (err: any) {
-      toast.error(err.response?.data?.message || `Failed to ${isEditMode ? 'update' : 'create'} quotation`);
+      toast.error(err.response?.data?.message || 'Failed to create invoice');
     } finally {
       setSaving(false);
     }
@@ -307,7 +173,7 @@ const NewQuotation = () => {
 
   if (loading) return (
     <div className="min-h-screen">
-      <TopBar title={isEditMode ? "Edit Quotation" : "New Quotation"} />
+      <TopBar title="Direct Invoice" />
       <div className="p-6 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4" />
@@ -319,8 +185,17 @@ const NewQuotation = () => {
 
   return (
     <div className="min-h-screen">
-      <TopBar title={isEditMode ? "Edit Quotation" : "New Quotation"} />
+      <TopBar title="Direct Invoice" />
       <div className="p-6 space-y-6">
+        {/* Back Button */}
+        <button
+          onClick={() => navigate('/invoices')}
+          className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ArrowLeft size={16} />
+          Back to Invoices
+        </button>
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
           {/* ── LEFT PANEL ── */}
@@ -388,35 +263,27 @@ const NewQuotation = () => {
               )}
             </div>
 
-            {/* Quotation Details */}
+            {/* Invoice Details */}
             <div className="bg-card rounded-xl border border-border shadow-sm p-5">
               <div className="flex items-center gap-2 mb-4">
-                <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center text-accent"><FileSignature size={16} /></div>
-                <h3 className="font-semibold text-foreground text-sm">Quotation Details</h3>
+                <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center text-accent"><FileText size={16} /></div>
+                <h3 className="font-semibold text-foreground text-sm">Invoice Details</h3>
               </div>
               <div className="space-y-3">
                 <div>
-                  <label className="block text-xs font-medium text-foreground mb-1">Quotation Date *</label>
-                  <input type="date" value={quotationDate} onChange={(e) => setQuotationDate(e.target.value)} className="input-field" />
+                  <label className="block text-xs font-medium text-foreground mb-1">Invoice Date *</label>
+                  <input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} className="input-field" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-foreground mb-1">Quotation Code / Ref</label>
-                  <input type="text" value={quotationCode} onChange={(e) => setQuotationCode(e.target.value)} placeholder="e.g. QT-2026-001" className="input-field" />
+                  <label className="block text-xs font-medium text-foreground mb-1 flex items-center gap-1"><Calendar size={11} />Due Date *</label>
+                  <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="input-field" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-foreground mb-1 flex items-center gap-1"><Calendar size={11} />Delivery Date</label>
-                  <input type="date" value={deliveryDate} onChange={(e) => setDeliveryDate(e.target.value)} className="input-field" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-foreground mb-1 flex items-center gap-1"><User size={11} />Executive Name</label>
-                  <input type="text" value={executiveName} onChange={(e) => setExecutiveName(e.target.value)} placeholder="Sales executive name" className="input-field" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-foreground mb-1">Quotation Discount (%)</label>
+                  <label className="block text-xs font-medium text-foreground mb-1">Invoice Discount (%)</label>
                   <input type="number" value={discountInput}
                     onChange={(e) => {
                       setDiscountInput(e.target.value);
-                      setQuotationDiscountPercentage(e.target.value === '' ? 0 : Number(e.target.value));
+                      setInvoiceDiscountPercentage(e.target.value === '' ? 0 : Number(e.target.value));
                     }}
                     placeholder="0"
                     className="input-field" min="0" max="100" step="0.01" />
@@ -470,11 +337,11 @@ const NewQuotation = () => {
               <div className="px-5 py-4 border-b border-border flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <FileText size={16} className="text-primary" />
-                  <h3 className="font-semibold text-foreground text-sm">Quotation Items</h3>
+                  <h3 className="font-semibold text-foreground text-sm">Invoice Items</h3>
                 </div>
-                <span className="text-xs text-muted-foreground">{quotationItems.length} item(s)</span>
+                <span className="text-xs text-muted-foreground">{invoiceItems.length} item(s)</span>
               </div>
-              {quotationItems.length === 0
+              {invoiceItems.length === 0
                 ? <div className="p-10 text-center"><Package size={40} className="mx-auto text-muted-foreground/30 mb-3" /><p className="text-sm text-muted-foreground">No products added yet</p></div>
                 : (
                   <div className="overflow-x-auto">
@@ -491,7 +358,7 @@ const NewQuotation = () => {
                         </tr>
                       </thead>
                       <tbody>
-                        {quotationItems.map((item) => {
+                        {invoiceItems.map((item) => {
                           const base = item.unitPrice * item.quantity;
                           const afterDisc = base - base * item.discountPercentage / 100;
                           const total = afterDisc + afterDisc * item.taxPercentage / 100;
@@ -540,76 +407,17 @@ const NewQuotation = () => {
                 )}
             </div>
 
-            {/* Services Section */}
-            <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
-              <div className="px-5 py-4 border-b border-border flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Wrench size={16} className="text-orange-500" />
-                  <h3 className="font-semibold text-foreground text-sm">Service Details</h3>
-                </div>
-                <div className="flex items-center gap-3">
-                  {/* Feature 2: Hide service charges on PDF toggle */}
-                  {services.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setHideServiceChargesOnPdf((p) => !p)}
-                      title={hideServiceChargesOnPdf ? 'Click to show service charges on PDF' : 'Click to hide service charges on PDF'}
-                      className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors ${
-                        hideServiceChargesOnPdf
-                          ? 'bg-amber-50 border-amber-300 text-amber-700 dark:bg-amber-950/30 dark:border-amber-700 dark:text-amber-400'
-                          : 'bg-green-50 border-green-300 text-green-700 dark:bg-green-950/30 dark:border-green-700 dark:text-green-400'
-                      }`}
-                    >
-                      {hideServiceChargesOnPdf ? '🙈 Hidden on PDF' : '👁 Visible on PDF'}
-                    </button>
-                  )}
-                  <button onClick={addService} className="flex items-center gap-1.5 text-xs btn-secondary py-1.5 px-3">
-                    <Plus size={13} /> Add Service
-                  </button>
-                </div>
-              </div>
-              {services.length === 0
-                ? <div className="p-8 text-center"><Wrench size={32} className="mx-auto text-muted-foreground/30 mb-2" /><p className="text-xs text-muted-foreground">No services added. Click "Add Service" to include service charges.</p></div>
-                : (
-                  <div className="p-4 space-y-3">
-                    {services.map((s, idx) => (
-                      <div key={idx} className="grid grid-cols-12 gap-2 items-end">
-                        <div className="col-span-5">
-                          {idx === 0 && <label className="block text-xs text-muted-foreground mb-1">Service Name</label>}
-                          <input type="text" value={s.serviceName} onChange={(e) => updateService(idx, 'serviceName', e.target.value)}
-                            placeholder="e.g. Installation" className="input-field text-sm" />
-                        </div>
-                        <div className="col-span-3">
-                          {idx === 0 && <label className="block text-xs text-muted-foreground mb-1">Price (₹)</label>}
-                          <input type="number" value={s.servicePriceInput} onChange={(e) => updateService(idx, 'servicePrice', e.target.value)}
-                            placeholder="0" className="input-field text-sm" min="0" />
-                        </div>
-                        <div className="col-span-3">
-                          {idx === 0 && <label className="block text-xs text-muted-foreground mb-1">Tax (%)</label>}
-                          <input type="number" value={s.serviceTaxInput} onChange={(e) => updateService(idx, 'serviceTax', e.target.value)}
-                            placeholder="0" className="input-field text-sm" min="0" max="100" />
-                        </div>
-                        <div className="col-span-1 flex justify-end">
-                          <button onClick={() => removeService(idx)} className="p-1.5 rounded text-destructive hover:bg-destructive/10"><Trash2 size={14} /></button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-            </div>
-
             {/* Order Summary */}
-            {(quotationItems.length > 0 || services.length > 0) && (
+            {invoiceItems.length > 0 && (
               <div className="bg-card rounded-xl border border-border shadow-sm p-5">
                 <div className="flex items-center gap-2 mb-4">
                   <Calculator size={16} className="text-warning" />
-                  <h3 className="font-semibold text-foreground text-sm">Order Summary</h3>
+                  <h3 className="font-semibold text-foreground text-sm">Invoice Summary</h3>
                 </div>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>₹{totals.subtotal.toFixed(2)}</span></div>
                   <div className="flex justify-between"><span className="text-muted-foreground">Total Discount</span><span className="text-destructive">-₹{totals.totalDiscount.toFixed(2)}</span></div>
                   <div className="flex justify-between"><span className="text-muted-foreground">Total Tax (GST)</span><span>₹{totals.totalTax.toFixed(2)}</span></div>
-                  {services.length > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Services Total</span><span>₹{totals.serviceTotals.toFixed(2)}</span></div>}
                   <div className="h-px bg-border my-2" />
                   <div className="flex justify-between font-bold text-base">
                     <span className="text-foreground">Grand Total</span>
@@ -621,13 +429,12 @@ const NewQuotation = () => {
 
             {/* Action Buttons */}
             <div className="flex gap-3">
-              <button onClick={() => saveQuotation('DRAFT')} disabled={saving}
-                className="flex-1 btn-secondary flex items-center justify-center gap-2 disabled:opacity-50">
-                <Save size={16} /> {saving ? 'Saving...' : 'Save as Draft'}
+              <button onClick={() => navigate('/invoices')} className="flex-1 btn-secondary flex items-center justify-center gap-2">
+                <X size={16} /> Cancel
               </button>
-              <button onClick={() => saveQuotation('GENERATED')} disabled={saving}
+              <button onClick={saveInvoice} disabled={saving}
                 className="flex-1 btn-primary flex items-center justify-center gap-2 disabled:opacity-50">
-                <FileText size={16} /> {saving ? 'Generating...' : 'Generate Quotation'}
+                <Save size={16} /> {saving ? 'Creating...' : 'Create Invoice'}
               </button>
             </div>
           </div>
@@ -637,4 +444,4 @@ const NewQuotation = () => {
   );
 };
 
-export default NewQuotation;
+export default DirectInvoice;

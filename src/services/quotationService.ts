@@ -7,6 +7,8 @@ export interface QuotationItem {
   productNameSnapshot?: string;
   productDescription?: string;
   productDescriptionSnapshot?: string;
+  imagePath?: string;  // Current product image
+  imagePathSnapshot?: string;  // Image snapshot at quotation time
   unitSnapshot?: string;
   unitPrice: number;
   quantity: number;

@@ -6,7 +6,7 @@ import invoiceService from '@/services/invoiceService';
 import { toast } from 'sonner';
 import {
   FileText, Eye, Trash2, Plus, Download, Send,
-  CheckCircle, Clock, AlertCircle, IndianRupee, X,
+  CheckCircle, Clock, AlertCircle, IndianRupee, X, FileCheck, FilePlus,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { SearchBar } from '@/components/common/SearchBar';
@@ -122,10 +122,22 @@ const InvoiceManagement = () => {
             <h1 className="text-2xl font-bold text-foreground">Invoices</h1>
             <p className="text-muted-foreground mt-1">Manage and track all invoices</p>
           </div>
-          <Link to="/new-invoice" className="btn-primary flex items-center gap-2">
-            <Plus className="w-5 h-5" />
-            New Invoice
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link to="/new-invoice" className="btn-primary flex items-center gap-2 px-5 py-2.5">
+              <FileCheck className="w-5 h-5" />
+              <div className="text-left">
+                <div className="text-sm font-semibold">From Quotation</div>
+                <div className="text-xs opacity-80">Convert approved quote</div>
+              </div>
+            </Link>
+            <Link to="/direct-invoice" className="btn-secondary flex items-center gap-2 px-5 py-2.5 border-2 border-primary/20 hover:border-primary/40">
+              <FilePlus className="w-5 h-5 text-primary" />
+              <div className="text-left">
+                <div className="text-sm font-semibold text-primary">Direct Invoice</div>
+                <div className="text-xs text-muted-foreground">Create without quote</div>
+              </div>
+            </Link>
+          </div>
         </div>
 
         {/* Stats Cards */}

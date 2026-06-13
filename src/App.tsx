@@ -21,10 +21,10 @@ import NewQuotation from "@/pages/NewQuotation";
 import QuotationHistory from "@/pages/QuotationHistory";
 import InvoiceManagement from "@/pages/InvoiceManagement";
 import NewInvoice from "@/pages/NewInvoice";
+import DirectInvoice from "@/pages/DirectInvoice";
 import InvoiceDetails from "@/pages/InvoiceDetails";
 import MasterSettings from "@/pages/MasterSettings";
 import CompanyMaster from "@/pages/CompanyMaster";
-import SmsTemplate from "@/pages/SmsTemplate";
 import Reports from "@/pages/Reports";
 import UserManagement from "@/pages/UserManagement";
 import ColorTheme from "@/pages/ColorTheme";
@@ -66,14 +66,6 @@ const App = () => (
                     element={
                       <ProtectedRoute requiredPermission="company_master">
                         <CompanyMaster />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/sms-template"
-                    element={
-                      <ProtectedRoute requiredPermission="sms_template">
-                        <SmsTemplate />
                       </ProtectedRoute>
                     }
                   />
@@ -130,6 +122,14 @@ const App = () => (
                     element={
                       <ProtectedRoute requiredPermission="new_invoice">
                         <NewInvoice />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/direct-invoice"
+                    element={
+                      <ProtectedRoute requiredPermission="new_invoice">
+                        <DirectInvoice />
                       </ProtectedRoute>
                     }
                   />
