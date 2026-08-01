@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+import React, { createContext, useContext, useState, useRef, ReactNode, useEffect } from 'react';
 import { quotationService, Quotation as APIQuotation } from '@/services/quotationService';
 import { toast } from 'sonner';
 import { useAuth } from './AuthContext';
@@ -53,12 +53,17 @@ interface Quotation {
 interface QuotationContextType {
   quotations: Quotation[];
   loading: boolean;
+  totalElements: number;
+  totalPages: number;
+  currentPage: number;
+  pageSize: number;
+  fetchPage: (page: number) => Promise<void>;
   addQuotation: (quotation: Omit<Quotation, 'id'>) => Promise<string>;
   updateQuotation: (id: string, quotation: Partial<Quotation> & { status?: string }) => Promise<void>;
   deleteQuotation: (id: string) => Promise<void>;
   getQuotationsByUser: (userId: string) => Quotation[];
   getQuotationById: (id: string) => Quotation | undefined;
-  refreshQuotations: () => Promise<void>;
+  refreshQuotations: (force?: boolean) => Promise<void>;
 }
 
 const QuotationContext = createContext<QuotationContextType | undefined>(undefined);
@@ -113,65 +118,60 @@ const mapAPIQuotationToQuotation = (apiQuotation: APIQuotation): Quotation => ({
 export const QuotationProvider = ({ children }: { children: ReactNode }) => {
   const [quotations, setQuotations] = useState<Quotation[]>([]);
   const [loading, setLoading] = useState(false);
+  const [totalElements, setTotalElements] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [currentPage, setCurrentPage] = useState(0);
+  const [pageSize] = useState(10);
   const { isAuthenticated, loading: authLoading } = useAuth();
 
-  const refreshQuotations = async () => {
-    // Don't fetch if not authenticated
-    if (!isAuthenticated) {
-      console.log('⏭️ Skipping quotation fetch - user not authenticated');
-      setQuotations([]);
-      setLoading(false);
-      return;
-    }
+  const lastFetchedPage = useRef<number | null>(null);
+  const lastFetchedAt = useRef<number | null>(null);
+  const STALE_AFTER_MS = 60_000;
 
+  /** Fetch a specific page from the server. */
+  const fetchPage = async (page: number) => {
+    if (!isAuthenticated) return;
     try {
       setLoading(true);
-      console.log('🔄 Fetching quotations from API...');
-      
-      const apiQuotations = await quotationService.getAll();
-      
-      console.log('✅ Quotations fetched:', apiQuotations.length);
-      
-      const mappedQuotations = apiQuotations.map(mapAPIQuotationToQuotation);
-      setQuotations(mappedQuotations);
+      const res = await quotationService.getPaged(page, pageSize);
+      const mapped = res.content.map(mapAPIQuotationToQuotation);
+      setQuotations(mapped);
+      setTotalElements(res.totalElements);
+      setTotalPages(res.totalPages);
+      setCurrentPage(res.currentPage);
+      lastFetchedPage.current = page;
+      lastFetchedAt.current = Date.now();
     } catch (error: any) {
-      console.error('❌ Failed to fetch quotations:', error);
-      
-      // Only show toast for non-auth errors
-      if (error.response?.status === 401 || error.response?.status === 403) {
-        // Silent fail for auth errors - user will be redirected to login
-        console.log('🔒 Authentication/permission error - silent fail');
-      } else if (error.response?.status === 500) {
-        // Only show error if user is on a page that needs quotations
-        console.error('Server error loading quotations');
-      } else if (error.code === 'ERR_NETWORK') {
-        // Silent fail for network errors on initial load
-        console.error('Network error loading quotations');
+      if (error.response?.status !== 401 && error.response?.status !== 403) {
+        console.error('Failed to fetch quotations:', error);
       }
-      
       setQuotations([]);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    // Wait for auth to finish loading before checking authentication
-    if (authLoading) {
-      console.log('⏳ Waiting for auth to initialize...');
-      return;
+  /** Refresh current page (or page 0 if none loaded). Respects stale check unless forced. */
+  const refreshQuotations = async (force = false) => {
+    if (!isAuthenticated) { setQuotations([]); setLoading(false); return; }
+    const now = Date.now();
+    if (!force && lastFetchedAt.current && (now - lastFetchedAt.current) < STALE_AFTER_MS) {
+      return; // still fresh
     }
+    await fetchPage(lastFetchedPage.current ?? 0);
+  };
 
-    // Only fetch when authenticated
+  useEffect(() => {
+    if (authLoading) return;
     if (isAuthenticated) {
-      console.log('✅ User authenticated, fetching quotations...');
-      refreshQuotations();
+      fetchPage(0); // always fetch on login — stale timer resets on logout
     } else {
-      console.log('❌ User not authenticated, skipping quotation fetch');
       setQuotations([]);
+      lastFetchedAt.current = null; // reset stale timer on logout
+      lastFetchedPage.current = null;
       setLoading(false);
     }
-  }, [isAuthenticated, authLoading]); // Re-run when auth state changes
+  }, [isAuthenticated, authLoading]);
 
   const addQuotation = async (quotation: Omit<Quotation, 'id'>): Promise<string> => {
     try {
@@ -195,7 +195,7 @@ export const QuotationProvider = ({ children }: { children: ReactNode }) => {
       
       const newQuotation = await quotationService.create(apiRequest);
       const mapped = mapAPIQuotationToQuotation(newQuotation);
-      setQuotations((prev) => [...prev, mapped]);
+      lastFetchedAt.current = null; // force fresh fetch next time
       toast.success('Quotation created successfully');
       return mapped.id;
     } catch (error) {
@@ -230,7 +230,7 @@ export const QuotationProvider = ({ children }: { children: ReactNode }) => {
           updated = response.quotation;
         } else if (response) {
           // refresh from server if quotation not in response
-          await refreshQuotations();
+          await refreshQuotations(true);
           toast.success('Quotation updated successfully');
           return;
         } else {
@@ -280,7 +280,8 @@ export const QuotationProvider = ({ children }: { children: ReactNode }) => {
   const deleteQuotation = async (id: string) => {
     try {
       await quotationService.delete(Number(id));
-      setQuotations((prev) => prev.filter((q) => q.id !== id));
+      lastFetchedAt.current = null; // force fresh fetch next time
+      await fetchPage(lastFetchedPage.current ?? 0); // refresh current page
       toast.success('Quotation deleted successfully');
     } catch (error) {
       console.error('Failed to delete quotation:', error);
@@ -302,6 +303,11 @@ export const QuotationProvider = ({ children }: { children: ReactNode }) => {
       value={{
         quotations,
         loading,
+        totalElements,
+        totalPages,
+        currentPage,
+        pageSize,
+        fetchPage,
         addQuotation,
         updateQuotation,
         deleteQuotation,

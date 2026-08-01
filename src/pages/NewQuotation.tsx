@@ -2,10 +2,16 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { useAuth } from '@/contexts/AuthContext';
+import { useProducts } from '@/contexts/ProductContext';
+import { useQuotations } from '@/contexts/QuotationContext';
 import { customerService, Customer } from '@/services/customerService';
-import { productService, Product } from '@/services/productService';
 import { quotationService, QuotationServiceItem } from '@/services/quotationService';
 import { toast } from 'sonner';
+
+// Module-level customer cache for NewQuotation — avoids re-fetch on every visit
+let _nqCustomerCache: Customer[] | null = null;
+let _nqCustomerCacheTime = 0;
+const CUSTOMER_STALE_MS = 60_000;
 import {
   FileText, Users, Package, Plus, Minus, Trash2, Save,
   Calculator, AlertTriangle, FileSignature, ChevronDown,
@@ -21,6 +27,7 @@ interface QuotationItemForm {
   taxPercentage: number;
   discountInput: string;
   taxInput: string;
+  priceInput: string;
 }
 
 interface ServiceForm {
@@ -38,8 +45,13 @@ const NewQuotation = () => {
   const isEditMode = searchParams.get('mode') === 'edit';
   const editingId = searchParams.get('id');
 
+  // Use ProductContext — already cached, no extra API call on each visit
+  const { products: contextProducts, loading: productsLoading } = useProducts();
+  // Use QuotationContext to invalidate cache after save
+  const { refreshQuotations } = useQuotations();
+
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -96,18 +108,41 @@ const NewQuotation = () => {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [customersData, productsData] = await Promise.all([
-        customerService.getAll(),
-        productService.getAll(),
-      ]);
+      const now = Date.now();
+      // Use cached customers if still fresh
+      if (_nqCustomerCache && (now - _nqCustomerCacheTime) < CUSTOMER_STALE_MS) {
+        setCustomers(_nqCustomerCache);
+        setLoading(false);
+        return;
+      }
+      const customersData = await customerService.getAll();
+      _nqCustomerCache = customersData;
+      _nqCustomerCacheTime = Date.now();
       setCustomers(customersData);
-      setProducts(productsData.filter((p) => p.active));
     } catch {
-      toast.error('Failed to load customers and products');
+      toast.error('Failed to load customers');
     } finally {
       setLoading(false);
     }
   };
+
+  // Sync products from context whenever context updates
+  useEffect(() => {
+    const active = contextProducts
+      .filter((p) => p.id)
+      .map((p) => ({
+        id: Number(p.id),
+        productName: p.name,
+        price: p.price,
+        unit: p.unit,
+        discountPercentage: p.discount,
+        taxPercentage: p.gst,
+        taxType: p.taxType,
+        imagePath: p.image,
+        active: true,
+      }));
+    setProducts(active);
+  }, [contextProducts]);
 
   const loadQuotationForEdit = (quotation: any) => {
     // Set customer
@@ -140,6 +175,7 @@ const NewQuotation = () => {
         taxPercentage: Number(item.taxPercentage || item.gst || 0),
         discountInput: String(Number(item.discountPercentage || item.discount || 0)),
         taxInput: String(Number(item.taxPercentage || item.gst || 0)),
+        priceInput: String(Number(item.unitPrice || item.price || 0)),
       }));
       setQuotationItems(items);
     }
@@ -186,6 +222,7 @@ const NewQuotation = () => {
       taxPercentage: product.taxType === 'No Tax' ? 0 : Number(product.taxPercentage || 0),
       discountInput: String(Number(product.discountPercentage || 0)),
       taxInput: product.taxType === 'No Tax' ? '0' : String(Number(product.taxPercentage || 0)),
+      priceInput: String(Number(product.price)),
     }]);
     toast.success(`${product.productName} added`);
   };
@@ -193,6 +230,13 @@ const NewQuotation = () => {
   const updateQty = (id: number, qty: number) => {
     if (qty < 1) return;
     setQuotationItems((prev) => prev.map((i) => i.productId === id ? { ...i, quantity: qty } : i));
+  };
+
+  const updatePrice = (id: number, val: string) => {
+    const num = parseFloat(val);
+    setQuotationItems((prev) => prev.map((i) => i.productId === id
+      ? { ...i, priceInput: val, unitPrice: isNaN(num) ? 0 : Math.max(0, num) }
+      : i));
   };
 
   const updateDiscount = (id: number, val: string) => {
@@ -296,6 +340,9 @@ const NewQuotation = () => {
         const result = await quotationService.create(quotationData);
         toast.success(`Quotation ${result.quotationNumber} created!`);
       }
+
+      // Force-refresh the quotation cache so the new record shows immediately on the history page
+      refreshQuotations(true);
       
       setTimeout(() => navigate('/quotation-history'), 1200);
     } catch (err: any) {
@@ -305,7 +352,7 @@ const NewQuotation = () => {
     }
   };
 
-  if (loading) return (
+  if (loading || productsLoading) return (
     <div className="min-h-screen">
       <TopBar title={isEditMode ? "Edit Quotation" : "New Quotation"} />
       <div className="p-6 flex items-center justify-center">
@@ -481,13 +528,13 @@ const NewQuotation = () => {
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="table-header">
-                          <th className="px-4 py-3 text-left">Product</th>
-                          <th className="px-3 py-3 text-right">Price</th>
-                          <th className="px-3 py-3 text-center">Qty</th>
-                          <th className="px-3 py-3 text-center">Disc%</th>
-                          <th className="px-3 py-3 text-center">Tax%</th>
-                          <th className="px-3 py-3 text-right">Total</th>
-                          <th className="px-3 py-3"></th>
+                          <th className="px-3 py-3 text-left font-semibold">Product</th>
+                          <th className="px-3 py-3 text-center font-semibold w-32">Price (₹)</th>
+                          <th className="px-3 py-3 text-center font-semibold w-28">Qty</th>
+                          <th className="px-3 py-3 text-center font-semibold w-24">Disc%</th>
+                          <th className="px-3 py-3 text-center font-semibold w-24">Tax%</th>
+                          <th className="px-3 py-3 text-right font-semibold w-28">Total</th>
+                          <th className="px-3 py-3 w-12"></th>
                         </tr>
                       </thead>
                       <tbody>
@@ -496,40 +543,48 @@ const NewQuotation = () => {
                           const afterDisc = base - base * item.discountPercentage / 100;
                           const total = afterDisc + afterDisc * item.taxPercentage / 100;
                           const prod = products.find((p) => p.id === item.productId);
+                          const inputClass = "h-10 border border-input rounded-md bg-background text-foreground font-medium text-sm px-3 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all";
                           return (
-                            <tr key={item.productId} className="table-row">
-                              <td className="px-4 py-3">
+                            <tr key={item.productId} className="table-row hover:bg-muted/50">
+                              <td className="px-3 py-3">
                                 <div className="flex items-center gap-2">
                                   {prod?.imagePath
-                                    ? <img src={prod.imagePath} alt={item.productName} className="w-9 h-9 rounded-lg object-cover border border-border flex-shrink-0" />
-                                    : <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0"><Package size={14} className="text-primary" /></div>
+                                    ? <img src={prod.imagePath} alt={item.productName} className="w-8 h-8 rounded-md object-cover border border-border flex-shrink-0" />
+                                    : <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0"><Package size={14} className="text-primary" /></div>
                                   }
-                                  <span className="font-medium text-foreground">{item.productName}</span>
+                                  <span className="font-medium text-foreground truncate">{item.productName}</span>
                                 </div>
                               </td>
-                              <td className="px-3 py-3 text-right text-muted-foreground">₹{item.unitPrice.toFixed(2)}</td>
+                              <td className="px-3 py-3 text-center">
+                                <input type="number" value={item.priceInput} onChange={(e) => updatePrice(item.productId, e.target.value)}
+                                  className={`w-full text-center ${inputClass}`} min="0" step="0.01" />
+                              </td>
                               <td className="px-3 py-3">
                                 <div className="flex items-center justify-center gap-1">
-                                  <button onClick={() => updateQty(item.productId, item.quantity - 1)} className="p-1 rounded bg-muted hover:bg-muted/80"><Minus size={12} /></button>
+                                  <button onClick={() => updateQty(item.productId, item.quantity - 1)} className="p-1 rounded-md bg-muted hover:bg-muted/80 transition-colors" title="Decrease"><Minus size={14} /></button>
                                   <input type="number" value={item.quantity} onChange={(e) => updateQty(item.productId, parseInt(e.target.value) || 1)}
-                                    className="w-12 text-center input-field py-1 px-1 text-xs" min="1" />
-                                  <button onClick={() => updateQty(item.productId, item.quantity + 1)} className="p-1 rounded bg-muted hover:bg-muted/80"><Plus size={12} /></button>
+                                    className={`text-center flex-1 ${inputClass}`} min="1" />
+                                  <button onClick={() => updateQty(item.productId, item.quantity + 1)} className="p-1 rounded-md bg-muted hover:bg-muted/80 transition-colors" title="Increase"><Plus size={14} /></button>
                                 </div>
                               </td>
-                              <td className="px-3 py-3">
+                              <td className="px-3 py-3 text-center">
                                 <input type="number" value={item.discountInput} onChange={(e) => updateDiscount(item.productId, e.target.value)}
-                                  className="w-16 text-center input-field py-1 px-1 text-xs mx-auto block" min="0" max="100" />
+                                  className={`w-full text-center ${inputClass}`} min="0" max="100" step="0.01" />
                               </td>
-                              <td className="px-3 py-3">
+                              <td className="px-3 py-3 text-center">
                                 {prod?.taxType === 'No Tax'
-                                  ? <span className="text-xs text-muted-foreground block text-center">No Tax</span>
+                                  ? <div className="flex justify-center"><span className="text-xs text-muted-foreground font-medium px-2 py-2 bg-muted/50 rounded-md">No Tax</span></div>
                                   : <input type="number" value={item.taxInput} onChange={(e) => updateTax(item.productId, e.target.value)}
-                                    className="w-16 text-center input-field py-1 px-1 text-xs mx-auto block" min="0" max="100" />
+                                      className={`w-full text-center ${inputClass}`} min="0" max="100" step="0.01" />
                                 }
                               </td>
-                              <td className="px-3 py-3 text-right font-semibold text-foreground">₹{total.toFixed(2)}</td>
+                              <td className="px-3 py-3 text-right">
+                                <span className="font-bold text-base text-primary">₹{total.toFixed(2)}</span>
+                              </td>
                               <td className="px-3 py-3">
-                                <button onClick={() => removeItem(item.productId)} className="p-1.5 rounded text-destructive hover:bg-destructive/10"><Trash2 size={14} /></button>
+                                <div className="flex justify-center">
+                                  <button onClick={() => removeItem(item.productId)} className="p-2 rounded-lg text-destructive hover:bg-destructive/10 transition-colors" title="Remove"><Trash2 size={16} /></button>
+                                </div>
                               </td>
                             </tr>
                           );
@@ -571,29 +626,48 @@ const NewQuotation = () => {
               {services.length === 0
                 ? <div className="p-8 text-center"><Wrench size={32} className="mx-auto text-muted-foreground/30 mb-2" /><p className="text-xs text-muted-foreground">No services added. Click "Add Service" to include service charges.</p></div>
                 : (
-                  <div className="p-4 space-y-3">
-                    {services.map((s, idx) => (
-                      <div key={idx} className="grid grid-cols-12 gap-2 items-end">
-                        <div className="col-span-5">
-                          {idx === 0 && <label className="block text-xs text-muted-foreground mb-1">Service Name</label>}
-                          <input type="text" value={s.serviceName} onChange={(e) => updateService(idx, 'serviceName', e.target.value)}
-                            placeholder="e.g. Installation" className="input-field text-sm" />
-                        </div>
-                        <div className="col-span-3">
-                          {idx === 0 && <label className="block text-xs text-muted-foreground mb-1">Price (₹)</label>}
-                          <input type="number" value={s.servicePriceInput} onChange={(e) => updateService(idx, 'servicePrice', e.target.value)}
-                            placeholder="0" className="input-field text-sm" min="0" />
-                        </div>
-                        <div className="col-span-3">
-                          {idx === 0 && <label className="block text-xs text-muted-foreground mb-1">Tax (%)</label>}
-                          <input type="number" value={s.serviceTaxInput} onChange={(e) => updateService(idx, 'serviceTax', e.target.value)}
-                            placeholder="0" className="input-field text-sm" min="0" max="100" />
-                        </div>
-                        <div className="col-span-1 flex justify-end">
-                          <button onClick={() => removeService(idx)} className="p-1.5 rounded text-destructive hover:bg-destructive/10"><Trash2 size={14} /></button>
-                        </div>
-                      </div>
-                    ))}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="table-header">
+                          <th className="px-3 py-3 text-left font-semibold">Service Name</th>
+                          <th className="px-3 py-3 text-center font-semibold w-32">Price (₹)</th>
+                          <th className="px-3 py-3 text-center font-semibold w-24">Tax (%)</th>
+                          <th className="px-3 py-3 text-right font-semibold w-28">Total</th>
+                          <th className="px-3 py-3 w-12"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {services.map((s, idx) => {
+                          const serviceTotal = s.servicePrice + (s.servicePrice * s.serviceTax / 100);
+                          const inputClass = "h-10 border border-input rounded-md bg-background text-foreground font-medium text-sm px-2 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all";
+                          return (
+                            <tr key={idx} className="table-row hover:bg-muted/50">
+                              <td className="px-3 py-3">
+                                <input type="text" value={s.serviceName} onChange={(e) => updateService(idx, 'serviceName', e.target.value)}
+                                  placeholder="e.g. Installation, Setup" className={`w-full ${inputClass}`} />
+                              </td>
+                              <td className="px-3 py-3">
+                                <input type="number" value={s.servicePriceInput} onChange={(e) => updateService(idx, 'servicePrice', e.target.value)}
+                                  placeholder="0" className={`w-full text-center ${inputClass}`} min="0" step="0.01" />
+                              </td>
+                              <td className="px-3 py-3">
+                                <input type="number" value={s.serviceTaxInput} onChange={(e) => updateService(idx, 'serviceTax', e.target.value)}
+                                  placeholder="0" className={`w-full text-center ${inputClass}`} min="0" max="100" step="0.01" />
+                              </td>
+                              <td className="px-3 py-3 text-right">
+                                <span className="font-bold text-base text-primary">₹{serviceTotal.toFixed(2)}</span>
+                              </td>
+                              <td className="px-3 py-3">
+                                <div className="flex justify-center">
+                                  <button onClick={() => removeService(idx)} className="p-2 rounded-lg text-destructive hover:bg-destructive/10 transition-colors" title="Remove"><Trash2 size={16} /></button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 )}
             </div>

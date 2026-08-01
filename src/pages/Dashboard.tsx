@@ -19,6 +19,12 @@ import {
   CalendarClock,
 } from 'lucide-react';
 
+// Module-level stale caches shared across Dashboard loads
+let _dashCustomerCount: number | null = null;
+let _dashEnquiries: Enquiry[] | null = null;
+let _dashCacheTime = 0;
+const STALE_MS = 60_000;
+
 const Dashboard = () => {
   const { user } = useAuth();
   const { quotations = [] } = useQuotations();
@@ -32,19 +38,25 @@ const Dashboard = () => {
 
   useEffect(() => {
     const fetchDashboardData = async () => {
+      const now = Date.now();
+      // Serve from cache if still fresh
+      if (_dashCustomerCount !== null && _dashEnquiries && (now - _dashCacheTime) < STALE_MS) {
+        setClientsCount(_dashCustomerCount);
+        setEnquiries(_dashEnquiries);
+        setIsLoading(false);
+        return;
+      }
       try {
         setIsLoading(true);
         setError(null);
-
-        // Don't set default dates - show all data by default
-        // const today = new Date().toISOString().split('T')[0];
-        // setFromDate(today);
-        // setToDate(today);
 
         const [customers, enqs] = await Promise.all([
           customerService.getAll(),
           enquiryService.getAll(),
         ]);
+        _dashCustomerCount = customers.length;
+        _dashEnquiries = enqs;
+        _dashCacheTime = Date.now();
         setClientsCount(customers.length);
         setEnquiries(enqs);
       } catch (error) {
@@ -264,7 +276,7 @@ const Dashboard = () => {
                         {quotation.items.length} items
                       </td>
                       <td className="px-6 py-4 font-medium text-foreground">
-                        ${quotation.grandTotal.toFixed(2)}
+                        ₹{new Intl.NumberFormat('en-IN').format(Math.round(quotation.grandTotal))}
                       </td>
                       <td className="px-6 py-4">
                         <StatusBadge status={quotation.status} />

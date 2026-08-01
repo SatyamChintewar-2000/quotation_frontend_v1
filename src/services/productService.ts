@@ -66,4 +66,9 @@ export const productService = {
   async delete(id: number): Promise<void> {
     await api.delete(`/api/products/${id}`);
   },
+
+  async bulkCreate(products: ProductRequest[]): Promise<{ created: number; failed: number; errors: string[] }> {
+    const response = await api.post('/api/products/bulk', products);
+    return response.data;
+  },
 };

@@ -9,6 +9,11 @@ import { Pagination } from '@/components/common/Pagination';
 import { DeleteConfirmModal } from '@/components/common/DeleteConfirmModal';
 import { exportToExcel } from '@/utils/excelExport';
 
+// Module-level stale cache — survives page navigation, invalidated on every write
+let _customerCache: Customer[] | null = null;
+let _customerCacheTime = 0;
+const STALE_MS = 60_000;
+
 const ITEMS_PER_PAGE = 9; // 3x3 grid
 
 const CustomerManagement = () => {
@@ -45,10 +50,18 @@ const CustomerManagement = () => {
     fetchCustomers();
   }, []);
 
-  const fetchCustomers = async () => {
+  const fetchCustomers = async (force = false) => {
+    const now = Date.now();
+    if (!force && _customerCache && (now - _customerCacheTime) < STALE_MS) {
+      setCustomers(_customerCache);
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
       const data = await customerService.getAll();
+      _customerCache = data;
+      _customerCacheTime = Date.now();
       setCustomers(data);
     } catch (error) {
       console.error('Failed to fetch customers:', error);
@@ -107,7 +120,8 @@ const CustomerManagement = () => {
       }
       setShowModal(false);
       resetForm();
-      fetchCustomers();
+      _customerCache = null;
+      fetchCustomers(true);
     } catch (error: any) {
       console.error('Failed to save customer:', error);
       const errorMessage = error.response?.data?.message || 'Failed to save customer';
@@ -128,7 +142,8 @@ const CustomerManagement = () => {
     try {
       await customerService.delete(deletingCustomer.id);
       toast.success('Customer deleted successfully');
-      fetchCustomers();
+      _customerCache = null;
+      fetchCustomers(true);
     } catch (error) {
       console.error('Failed to delete customer:', error);
       toast.error('Failed to delete customer');

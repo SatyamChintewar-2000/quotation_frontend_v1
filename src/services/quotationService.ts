@@ -75,9 +75,22 @@ export interface QuotationRequest {
   discountPercentage?: number;
 }
 
+export interface QuotationPageResponse {
+  content: Quotation[];
+  totalElements: number;
+  totalPages: number;
+  currentPage: number;
+  pageSize: number;
+}
+
 export const quotationService = {
   async getAll(): Promise<Quotation[]> {
     const response = await api.get('/api/quotations');
+    return response.data;
+  },
+
+  async getPaged(page = 0, size = 10): Promise<QuotationPageResponse> {
+    const response = await api.get('/api/quotations/paged', { params: { page, size } });
     return response.data;
   },
 

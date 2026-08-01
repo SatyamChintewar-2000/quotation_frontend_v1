@@ -20,25 +20,32 @@ import { useNavigate } from 'react-router-dom';
 const ITEMS_PER_PAGE = 10;
 
 const QuotationHistory = () => {
-  const { user } = useAuth();
+  const { user, isAuthenticated, loading: authLoading } = useAuth();
   const navigate = useNavigate();
-  const { quotations, updateQuotation, deleteQuotation, refreshQuotations } = useQuotations();
+  const {
+    quotations,
+    loading: quotationsLoading,
+    totalElements,
+    totalPages,
+    currentPage: serverPage,
+    fetchPage,
+    updateQuotation,
+    deleteQuotation,
+    refreshQuotations,
+  } = useQuotations();
   const [viewingQuotation, setViewingQuotation] = useState<any>(null);
   const [editingQuotation, setEditingQuotation] = useState<any>(null);
   const [selectedNewStatus, setSelectedNewStatus] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [downloading, setDownloading] = useState(false);
-  const [isPdfCapturing, setIsPdfCapturing] = useState(false);
   const printRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    refreshQuotations();
     api.get('/api/quotations/notification-settings')
       .then(res => setNotificationsEnabled(res.data.notificationsEnabled))
       .catch(() => setNotificationsEnabled(true));
@@ -73,13 +80,63 @@ const QuotationHistory = () => {
   const isSuperAdmin = user?.role === 'superadmin';
   const userQuotations: any[] = quotations;
 
+  /**
+   * Fetch full quotation detail (with items + images) from the server
+   * and open the view modal. The list endpoint excludes images for performance,
+   * so we always need to call GET /api/quotations/{id} before showing the modal.
+   */
+  const [viewLoading, setViewLoading] = useState(false);
+  const handleView = async (q: any) => {
+    setViewingQuotation(q); // open modal immediately with summary
+    setViewLoading(true);
+    try {
+      const res = await api.get(`/api/quotations/${q.id}`);
+      const d = res.data;
+      // Remap items to ensure all display fields are populated
+      const items = (d.items || []).map((item: any) => ({
+        ...item,
+        // productName = current product name from DB (reliable)
+        // productNameSnapshot = name at time of quoting (may be corrupted in old records)
+        // QuotationPrintView reads productNameSnapshot first, then productName
+        // So we set productNameSnapshot to the best available name
+        productName: item.productName || item.productNameSnapshot || '—',
+        productNameSnapshot: item.productNameSnapshot && item.productNameSnapshot !== item.productName
+          ? item.productNameSnapshot  // keep snapshot if it differs (genuine historical data)
+          : item.productName || item.productNameSnapshot || '—', // prefer current name
+        productDescription: item.productDescriptionSnapshot || item.productDescription || '',
+        // For image: try snapshot first, then current product image
+        imagePathSnapshot: item.imagePathSnapshot || item.imagePath || '',
+        imagePath: item.imagePath || item.imagePathSnapshot || '',
+        // Ensure numeric fields are numbers
+        unitPrice: Number(item.unitPrice ?? 0),
+        quantity: Number(item.quantity ?? 0),
+        discountPercentage: Number(item.discountPercentage ?? 0),
+        taxPercentage: Number(item.taxPercentage ?? 0),
+        itemTotal: Number(item.itemTotal ?? 0),
+      }));
+      setViewingQuotation({
+        ...d,
+        grandTotal: d.totalAmount ?? d.grandTotal ?? 0,
+        clientName: d.customerName || d.clientName || '',
+        items,
+      });
+    } catch {
+      // keep summary already shown
+    } finally {
+      setViewLoading(false);
+    }
+  };
+
+  // Client-side filter applied on the current page of server-returned records
+  // (search, date range — these filter the already-loaded page)
   const filteredQuotations = userQuotations.filter((q: any) => {
     if (searchTerm) {
       const t = searchTerm.toLowerCase();
       if (
         !q.id.toString().includes(t) &&
         !(q.clientName || q.customerName || '').toLowerCase().includes(t) &&
-        !q.status.toLowerCase().includes(t)
+        !q.status.toLowerCase().includes(t) &&
+        !(q.quotationNumber || '').toLowerCase().includes(t)
       ) return false;
     }
     if (!fromDate && !toDate) return true;
@@ -94,11 +151,17 @@ const QuotationHistory = () => {
     return true;
   });
 
-  const { sortedData: sorted, sort, handleSort } = useSortable(filteredQuotations);
-  const totalPages = Math.ceil(sorted.length / ITEMS_PER_PAGE);
-  const paginated = sorted.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
+  // Server controls order (createdAt DESC) and pagination
+  // Client-side sort still allows column header clicks for secondary sorting
+  const { sortedData: sorted, sort, handleSort } = useSortable(filteredQuotations, { key: 'createdAt', direction: 'desc' });
 
-  React.useEffect(() => { setCurrentPage(1); }, [searchTerm, fromDate, toDate]);
+  // Server-side page navigation
+  const handlePageChange = (newPage: number) => {
+    // newPage from Pagination component is 1-based; server is 0-based
+    fetchPage(newPage - 1);
+  };
+
+  React.useEffect(() => { fetchPage(0); }, [searchTerm, fromDate, toDate]);
 
   const handleExportToExcel = () => {
     if (!filteredQuotations.length) { toast.error('No quotations to export'); return; }
@@ -146,7 +209,7 @@ const QuotationHistory = () => {
     try {
       const response = await api.post(`/api/quotations/${q.id}/duplicate`);
       toast.success(`Quotation duplicated! New quotation #${response.data.id} created in DRAFT status. You can now edit it.`);
-      refreshQuotations();
+      refreshQuotations(true);
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Failed to duplicate quotation');
     }
@@ -159,7 +222,7 @@ const QuotationHistory = () => {
         await updateQuotation(editingQuotation.id, { status: selectedNewStatus });
         if (selectedNewStatus === 'approved') {
           toast.success('Invoice auto-created. Check the Invoices section.');
-          refreshQuotations();
+          refreshQuotations(true);
         }
       }
       setEditingQuotation(null);
@@ -168,8 +231,9 @@ const QuotationHistory = () => {
     }
   };
 
-  // Download PDF using html2canvas with smart page-break detection.
-  // Measures actual DOM row positions to ensure no row is ever split mid-page.
+  // Download PDF — uses pure jsPDF programmatic renderer (no html2canvas).
+  // Delivers enterprise-grade output: repeated headers, complete borders,
+  // proper row-level page breaks, no content clipping.
   const downloadPDF = async (quotation?: any) => {
     const target = quotation || viewingQuotation;
     if (!target) return;
@@ -177,138 +241,60 @@ const QuotationHistory = () => {
     try {
       setDownloading(true);
 
-      if (printRef.current && viewingQuotation && (!quotation || quotation.id === viewingQuotation.id)) {
-        const html2canvas = (await import('html2canvas')).default;
-        const { jsPDF }   = await import('jspdf');
+      // If called from the row button and the modal is NOT open,
+      // open the view modal first — load full detail including images
+      if (quotation && (!viewingQuotation || viewingQuotation.id !== quotation.id)) {
+        handleView(quotation);
+        toast.info('Opening view — click "Download PDF" to generate');
+        setDownloading(false);
+        return;
+      }
 
-        // 1. Hide watermark during capture
-        setIsPdfCapturing(true);
-        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      if (viewingQuotation) {
+        const { generateQuotationPdf } = await import('@/utils/generateQuotationPdf');
+        const { companyService }        = await import('@/services/companyService');
+        const QRCode                    = await import('qrcode');
 
-        // 2. Wait until all product images are decoded
-        await new Promise<void>((resolve) => {
-          const el = printRef.current!;
-          const check = () => {
-            if (el.getAttribute('data-images-ready') === 'true') { resolve(); return; }
-            setTimeout(check, 80);
-          };
-          check();
-        });
-
-        // 3. Scroll to top
-        const scrollContainer = printRef.current.closest('.overflow-y-auto');
-        if (scrollContainer) scrollContainer.scrollTop = 0;
-        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-
-        const rootEl = printRef.current;
-
-        // 4. Measure safe page-break positions.
-        //    A4 at 794px wide = 1123px tall (794 * 297/210).
-        //    We work in screen pixels (scale=1) then multiply for canvas coords.
-        const pxPerMm    = rootEl.offsetWidth / 210;          // px per mm at screen scale
-        const pageHeightPx = 297 * pxPerMm;                   // A4 height in px
-        const rootTop    = rootEl.getBoundingClientRect().top + window.scrollY;
-
-        // Collect all table rows in the product table — these must never be split
-        const tableRows = Array.from(rootEl.querySelectorAll('tbody tr')) as HTMLElement[];
-
-        // Build list of "forbidden zones": [rowTop, rowBottom] in component-relative px
-        const forbiddenZones = tableRows.map(row => {
-          const rect = row.getBoundingClientRect();
-          const top    = rect.top    + window.scrollY - rootTop;
-          const bottom = rect.bottom + window.scrollY - rootTop;
-          return { top, bottom };
-        });
-
-        // Calculate smart page break positions:
-        // Start with natural A4 breaks, then push each break to avoid splitting a row
-        const totalHeightPx = rootEl.scrollHeight;
-        const naturalBreaks: number[] = [];
-        for (let y = pageHeightPx; y < totalHeightPx; y += pageHeightPx) {
-          naturalBreaks.push(y);
+        // Load company data
+        let company: any = {};
+        try {
+          company = await companyService.getMyCompany();
+        } catch {
+          try {
+            const list = await companyService.getAll();
+            if (list.length) company = list[0];
+          } catch { /* proceed without company */ }
         }
 
-        const smartBreaks: number[] = naturalBreaks.map(breakY => {
-          // Check if this break falls inside any row
-          for (const zone of forbiddenZones) {
-            if (breakY > zone.top && breakY < zone.bottom) {
-              // Push break UP to just before this row starts
-              return zone.top - 4; // 4px margin above row
-            }
-          }
-          return breakY;
-        });
-
-        // 5. Capture the full canvas
-        const SCALE = 2;
-        const canvas = await html2canvas(rootEl, {
-          scale: SCALE,
-          useCORS: true,
-          allowTaint: true,
-          backgroundColor: '#ffffff',
-          logging: false,
-          imageTimeout: 30000,
-          windowHeight: totalHeightPx,
-          height: totalHeightPx,
-          y: 0,
-          onclone: (_doc, clonedEl) => {
-            clonedEl.querySelectorAll('img').forEach((img: HTMLImageElement) => {
-              img.style.display      = 'block';
-              img.style.visibility   = 'visible';
-              img.style.opacity      = '1';
-            });
-          },
-        });
-
-        // 6. Build PDF: slice canvas at smart break positions
-        const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-        const pdfPageW = pdf.internal.pageSize.getWidth();   // 210mm
-        const pdfPageH = pdf.internal.pageSize.getHeight();  // 297mm
-
-        // Convert smart breaks from screen-px to canvas-px
-        const canvasBreaks = smartBreaks.map(b => Math.round(b * SCALE));
-        const canvasTotal  = canvas.height;
-
-        // Build slice boundaries: [0, break1, break2, ..., totalHeight]
-        const sliceStarts  = [0, ...canvasBreaks];
-        const sliceEnds    = [...canvasBreaks, canvasTotal];
-
-        for (let i = 0; i < sliceStarts.length; i++) {
-          const sliceTop    = sliceStarts[i];
-          const sliceBottom = sliceEnds[i];
-          const sliceH      = sliceBottom - sliceTop;
-
-          if (sliceH <= 0) continue;
-
-          // Create an offscreen canvas for this slice
-          const sliceCanvas = document.createElement('canvas');
-          sliceCanvas.width  = canvas.width;
-          sliceCanvas.height = sliceH;
-          const ctx = sliceCanvas.getContext('2d')!;
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(0, 0, sliceCanvas.width, sliceH);
-          ctx.drawImage(canvas, 0, sliceTop, canvas.width, sliceH, 0, 0, canvas.width, sliceH);
-
-          const sliceData   = sliceCanvas.toDataURL('image/jpeg', 0.93);
-          // Height of this slice in mm
-          const sliceHeightMm = (sliceH / SCALE) * (pdfPageW / rootEl.offsetWidth);
-
-          if (i > 0) pdf.addPage();
-          pdf.addImage(sliceData, 'JPEG', 0, 0, pdfPageW, sliceHeightMm);
+        // Build QR code
+        let qrDataUrl = '';
+        if (company?.upiId) {
+          const serviceTotal = (viewingQuotation.services || []).reduce((acc: number, sv: any) => {
+            const p = Number(sv.servicePrice) || 0, t = Number(sv.serviceTax) || 0;
+            return acc + p + p * t / 100;
+          }, 0);
+          const grandTotal = viewingQuotation.subtotal - viewingQuotation.totalDiscount
+            + viewingQuotation.totalGst + serviceTotal;
+          const upiStr = `upi://pay?pa=${company.upiId}&pn=${encodeURIComponent(company.companyName || '')}&am=${grandTotal}&cu=INR`;
+          try { qrDataUrl = await QRCode.default.toDataURL(upiStr, { width: 120, margin: 1 }); } catch { /* skip */ }
         }
 
-        pdf.save(`quotation-${target.quotationNumber || target.id}.pdf`);
-        setIsPdfCapturing(false);
+        await generateQuotationPdf(
+          viewingQuotation,
+          company,
+          qrDataUrl,
+          `quotation-${viewingQuotation.quotationNumber || viewingQuotation.id}.pdf`,
+        );
+
         toast.success('PDF downloaded successfully');
         return;
       }
 
-      // Fallback: open the view modal
-      setViewingQuotation(target);
+      // Fallback: open the view modal with full detail
+      handleView(target);
       toast.info('Click "Download PDF" in the view modal');
     } catch (err) {
       console.error('PDF generation failed:', err);
-      setIsPdfCapturing(false);
       toast.error('Failed to generate PDF');
     } finally {
       setDownloading(false);
@@ -358,7 +344,37 @@ const QuotationHistory = () => {
 
         {/* Table */}
         <div className="bg-card rounded-xl shadow-md border border-border overflow-hidden">
-          {filteredQuotations.length === 0 ? (
+          {(quotationsLoading || (!authLoading && isAuthenticated && quotations.length === 0 && !searchTerm && !fromDate && !toDate)) ? (
+            /* ── Skeleton rows for the quotation list table ── */
+            <div className="animate-pulse">
+              <table className="w-full">
+                <thead>
+                  <tr className="table-header">
+                    <th className="px-6 py-4 text-left">ID</th>
+                    <th className="px-6 py-4 text-left">Client</th>
+                    <th className="px-6 py-4 text-left">Items</th>
+                    <th className="px-6 py-4 text-right">Total</th>
+                    <th className="px-6 py-4 text-left">Status</th>
+                    <th className="px-6 py-4 text-left">Date</th>
+                    <th className="px-6 py-4 text-center">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...Array(ITEMS_PER_PAGE)].map((_, i) => (
+                    <tr key={i} className="border-b border-border">
+                      <td className="px-6 py-4"><div className="h-4 bg-muted rounded w-8" /></td>
+                      <td className="px-6 py-4"><div className="h-4 bg-muted rounded w-28" /></td>
+                      <td className="px-6 py-4"><div className="h-4 bg-muted rounded w-14" /></td>
+                      <td className="px-6 py-4 text-right"><div className="h-4 bg-muted rounded w-20 ml-auto" /></td>
+                      <td className="px-6 py-4"><div className="h-6 bg-muted rounded-full w-20" /></td>
+                      <td className="px-6 py-4"><div className="h-4 bg-muted rounded w-20" /></td>
+                      <td className="px-6 py-4"><div className="h-6 bg-muted rounded w-32 mx-auto" /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : filteredQuotations.length === 0 ? (
             <div className="p-12 text-center">
               <History size={48} className="mx-auto text-muted-foreground/30 mb-4" />
               <p className="text-muted-foreground">
@@ -381,13 +397,13 @@ const QuotationHistory = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {paginated.map((q: any) => (
+                    {sorted.map((q: any) => (
                       <tr key={q.id} className="table-row">
                         <td className="px-6 py-4 font-medium text-foreground">{q.id}</td>
                         <td className="px-6 py-4 text-foreground">{q.clientName || q.customerName}</td>
                         <td className="px-6 py-4 text-muted-foreground">{q.items?.length || 0} items</td>
                         <td className="px-6 py-4 text-right font-medium text-foreground">
-                          {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(q.grandTotal)}
+                          ₹{new Intl.NumberFormat('en-IN').format(Math.round(q.grandTotal))}
                         </td>
                         <td className="px-6 py-4"><StatusBadge status={q.status} /></td>
                         <td className="px-6 py-4 text-muted-foreground">
@@ -395,7 +411,7 @@ const QuotationHistory = () => {
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex items-center justify-center gap-1">
-                            <button onClick={() => setViewingQuotation(q)} className="p-1.5 rounded-lg hover:bg-muted transition-colors" title="View">
+                            <button onClick={() => handleView(q)} className="p-1.5 rounded-lg hover:bg-muted transition-colors" title="View">
                               <Eye size={15} className="text-muted-foreground" />
                             </button>
                             {q.status.toLowerCase() === 'draft' && (
@@ -433,11 +449,11 @@ const QuotationHistory = () => {
                 </table>
               </div>
               <Pagination
-                currentPage={currentPage}
+                currentPage={serverPage + 1}
                 totalPages={totalPages}
-                totalItems={sorted.length}
+                totalItems={totalElements}
                 itemsPerPage={ITEMS_PER_PAGE}
-                onPageChange={setCurrentPage}
+                onPageChange={handlePageChange}
               />
             </div>
           )}
@@ -458,7 +474,7 @@ const QuotationHistory = () => {
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => downloadPDF()}
-                  disabled={downloading}
+                  disabled={downloading || viewLoading}
                   className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium disabled:opacity-60"
                 >
                   {downloading ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}
@@ -470,9 +486,68 @@ const QuotationHistory = () => {
               </div>
             </div>
             <div className="overflow-y-auto flex-1 bg-gray-100 p-4">
-              <div className="mx-auto shadow-lg">
-                <QuotationPrintView ref={printRef} quotation={viewingQuotation} forPdf={isPdfCapturing} />
-              </div>
+              {viewLoading ? (
+                /* ── Skeleton loader mimicking the quotation PDF layout ── */
+                <div className="mx-auto bg-white rounded shadow-lg p-6 space-y-5 animate-pulse">
+                  {/* Company header */}
+                  <div className="flex items-start justify-between">
+                    <div className="w-24 h-24 bg-gray-200 rounded" />
+                    <div className="space-y-2 flex-1 ml-6">
+                      <div className="h-6 bg-gray-200 rounded w-48 ml-auto" />
+                      <div className="h-4 bg-gray-200 rounded w-64 ml-auto" />
+                      <div className="h-4 bg-gray-200 rounded w-40 ml-auto" />
+                    </div>
+                  </div>
+                  {/* Bill to + Quotation title */}
+                  <div className="grid grid-cols-3 gap-4 border-t border-b border-gray-100 py-4">
+                    <div className="space-y-2">
+                      <div className="h-3 bg-gray-200 rounded w-16" />
+                      <div className="h-5 bg-gray-200 rounded w-32" />
+                      <div className="h-4 bg-gray-200 rounded w-24" />
+                    </div>
+                    <div className="flex items-center justify-center">
+                      <div className="h-8 bg-gray-200 rounded w-36" />
+                    </div>
+                    <div className="space-y-2 text-right">
+                      <div className="h-4 bg-gray-200 rounded w-28 ml-auto" />
+                      <div className="h-4 bg-gray-200 rounded w-24 ml-auto" />
+                    </div>
+                  </div>
+                  {/* Product table header */}
+                  <div className="space-y-2">
+                    <div className="h-4 bg-gray-200 rounded w-32" />
+                    <div className="h-10 bg-gray-300 rounded w-full" />
+                    {/* Product rows */}
+                    {[1, 2, 3].map(i => (
+                      <div key={i} className="grid grid-cols-6 gap-3 items-center py-3 border-b border-gray-100">
+                        <div className="col-span-1 flex justify-center">
+                          <div className="w-16 h-16 bg-gray-200 rounded" />
+                        </div>
+                        <div className="col-span-2 space-y-2">
+                          <div className="h-4 bg-gray-200 rounded w-32" />
+                          <div className="h-3 bg-gray-200 rounded w-24" />
+                        </div>
+                        <div className="h-4 bg-gray-200 rounded w-16" />
+                        <div className="h-4 bg-gray-200 rounded w-16" />
+                        <div className="h-4 bg-gray-200 rounded w-16" />
+                      </div>
+                    ))}
+                  </div>
+                  {/* Totals */}
+                  <div className="flex justify-end">
+                    <div className="w-64 space-y-2">
+                      <div className="flex justify-between"><div className="h-4 bg-gray-200 rounded w-20" /><div className="h-4 bg-gray-200 rounded w-24" /></div>
+                      <div className="flex justify-between"><div className="h-4 bg-gray-200 rounded w-20" /><div className="h-4 bg-gray-200 rounded w-24" /></div>
+                      <div className="flex justify-between"><div className="h-4 bg-gray-200 rounded w-20" /><div className="h-4 bg-gray-200 rounded w-24" /></div>
+                      <div className="flex justify-between mt-2"><div className="h-5 bg-gray-300 rounded w-24" /><div className="h-5 bg-gray-300 rounded w-28" /></div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="mx-auto shadow-lg">
+                  <QuotationPrintView ref={printRef} quotation={viewingQuotation} />
+                </div>
+              )}
             </div>
           </div>
         </div>

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useRef, useCallback, useEffect } from 'react';
 import invoiceService, { Invoice, InvoiceRequest, Payment } from '@/services/invoiceService';
 import { toast } from 'sonner';
 import { useAuth } from './AuthContext';
@@ -32,12 +32,24 @@ export const InvoiceProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [error, setError] = useState<string | null>(null);
   const { isAuthenticated, loading: authLoading } = useAuth();
 
-  const fetchInvoices = useCallback(async () => {
+  // 60-second stale threshold — avoids re-fetch on every page navigation
+  const lastFetchedAt = useRef<number | null>(null);
+  const STALE_AFTER_MS = 60_000;
+
+  const fetchInvoices = useCallback(async (force = false) => {
+    if (!isAuthenticated) { setInvoices([]); return; }
+
+    const now = Date.now();
+    if (!force && lastFetchedAt.current && (now - lastFetchedAt.current) < STALE_AFTER_MS) {
+      return; // still fresh — serve from memory
+    }
+
     setLoading(true);
     setError(null);
     try {
       const data = await invoiceService.getInvoices();
       setInvoices(data);
+      lastFetchedAt.current = Date.now();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to fetch invoices';
       setError(message);
@@ -45,7 +57,7 @@ export const InvoiceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isAuthenticated]);
 
   const fetchInvoiceById = useCallback(async (id: number) => {
     try {
@@ -112,6 +124,7 @@ export const InvoiceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       const newInvoice = await invoiceService.createInvoice(data);
       setInvoices(prev => [...prev, newInvoice]);
+      lastFetchedAt.current = null;
       toast.success('Invoice created successfully');
       return newInvoice;
     } catch (err) {
@@ -126,6 +139,7 @@ export const InvoiceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       const updated = await invoiceService.updateInvoice(id, data);
       setInvoices(prev => prev.map(inv => inv.id === id ? updated : inv));
+      lastFetchedAt.current = null;
       toast.success('Invoice updated successfully');
       return updated;
     } catch (err) {
@@ -140,6 +154,7 @@ export const InvoiceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       await invoiceService.deleteInvoice(id);
       setInvoices(prev => prev.filter(inv => inv.id !== id));
+      lastFetchedAt.current = null;
       toast.success('Invoice deleted successfully');
       return true;
     } catch (err) {
@@ -154,6 +169,7 @@ export const InvoiceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       const updated = await invoiceService.changeStatus(id, status);
       setInvoices(prev => prev.map(inv => inv.id === id ? updated : inv));
+      lastFetchedAt.current = null;
       toast.success(`Invoice status changed to ${status}`);
       return updated;
     } catch (err) {
@@ -168,6 +184,7 @@ export const InvoiceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       const updated = await invoiceService.markAsSent(id);
       setInvoices(prev => prev.map(inv => inv.id === id ? updated : inv));
+      lastFetchedAt.current = null;
       toast.success('Invoice marked as sent');
       return updated;
     } catch (err) {
@@ -182,6 +199,7 @@ export const InvoiceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       const updated = await invoiceService.markAsPaid(id);
       setInvoices(prev => prev.map(inv => inv.id === id ? updated : inv));
+      lastFetchedAt.current = null;
       toast.success('Invoice marked as paid');
       return updated;
     } catch (err) {
@@ -227,9 +245,10 @@ export const InvoiceProvider: React.FC<{ children: React.ReactNode }> = ({ child
   useEffect(() => {
     if (authLoading) return;
     if (isAuthenticated) {
-      fetchInvoices();
+      fetchInvoices(true); // always force on login
     } else {
       setInvoices([]);
+      lastFetchedAt.current = null; // reset on logout
     }
   }, [isAuthenticated, authLoading, fetchInvoices]);
 

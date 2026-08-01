@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+import React, { createContext, useContext, useState, useRef, ReactNode, useEffect } from 'react';
 import { productService, Product as APIProduct, ProductRequest } from '@/services/productService';
 import { toast } from 'sonner';
 import { useAuth } from './AuthContext';
@@ -27,7 +27,7 @@ interface ProductContextType {
   updateProduct: (id: string, product: Partial<Product>) => Promise<void>;
   deleteProduct: (id: string) => Promise<void>;
   getProductsByUser: (userId: string) => Product[];
-  refreshProducts: () => Promise<void>;
+  refreshProducts: (force?: boolean) => Promise<void>;
 }
 
 const ProductContext = createContext<ProductContextType | undefined>(undefined);
@@ -68,40 +68,32 @@ export const ProductProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading] = useState(false);
   const { isAuthenticated, loading: authLoading } = useAuth();
 
-  const refreshProducts = async () => {
-    // Don't fetch if not authenticated
+  // 60-second stale threshold — same pattern as QuotationContext
+  const lastFetchedAt = useRef<number | null>(null);
+  const STALE_AFTER_MS = 60_000;
+
+  const refreshProducts = async (force = false) => {
     if (!isAuthenticated) {
-      console.log('⏭️ Skipping product fetch - user not authenticated');
       setProducts([]);
       setLoading(false);
       return;
     }
 
+    const now = Date.now();
+    if (!force && lastFetchedAt.current && (now - lastFetchedAt.current) < STALE_AFTER_MS) {
+      console.log('⚡ Products still fresh — serving from memory');
+      return;
+    }
+
     try {
       setLoading(true);
-      console.log('🔄 Fetching products from API...');
-      
       const apiProducts = await productService.getAll();
-      
-      console.log('✅ Products fetched:', apiProducts.length);
-      
-      const mappedProducts = apiProducts.map(mapAPIProductToProduct);
-      setProducts(mappedProducts);
+      setProducts(apiProducts.map(mapAPIProductToProduct));
+      lastFetchedAt.current = Date.now();
     } catch (error: any) {
-      console.error('❌ Failed to fetch products:', error);
-      
-      // Only show toast for non-auth errors
-      if (error.response?.status === 401 || error.response?.status === 403) {
-        // Silent fail for auth errors - user will be redirected to login
-        console.log('🔒 Authentication/permission error - silent fail');
-      } else if (error.response?.status === 500) {
-        // Only show error if user is on a page that needs products
-        console.error('Server error loading products');
-      } else if (error.code === 'ERR_NETWORK') {
-        // Silent fail for network errors on initial load
-        console.error('Network error loading products');
+      if (error.response?.status !== 401 && error.response?.status !== 403) {
+        console.error('Failed to fetch products:', error);
       }
-      
       setProducts([]);
     } finally {
       setLoading(false);
@@ -117,20 +109,20 @@ export const ProductProvider = ({ children }: { children: ReactNode }) => {
 
     // Only fetch when authenticated
     if (isAuthenticated) {
-      console.log('✅ User authenticated, fetching products...');
-      refreshProducts();
+      refreshProducts(true); // force=true on auth change to always get fresh data after login
     } else {
-      console.log('❌ User not authenticated, skipping product fetch');
       setProducts([]);
+      lastFetchedAt.current = null; // reset stale timer on logout
       setLoading(false);
     }
-  }, [isAuthenticated, authLoading]); // Re-run when auth state changes
+  }, [isAuthenticated, authLoading]);
 
   const addProduct = async (product: Omit<Product, 'id'>) => {
     try {
       const apiRequest = mapProductToAPIRequest(product);
       const newProduct = await productService.create(apiRequest);
       setProducts((prev) => [...prev, mapAPIProductToProduct(newProduct)]);
+      lastFetchedAt.current = null; // force fresh fetch next time
       toast.success('Product added successfully');
     } catch (error) {
       console.error('Failed to add product:', error);
@@ -146,6 +138,7 @@ export const ProductProvider = ({ children }: { children: ReactNode }) => {
       setProducts((prev) =>
         prev.map((p) => (p.id === id ? mapAPIProductToProduct(updated) : p))
       );
+      lastFetchedAt.current = null;
       toast.success('Product updated successfully');
     } catch (error) {
       console.error('Failed to update product:', error);
@@ -158,6 +151,7 @@ export const ProductProvider = ({ children }: { children: ReactNode }) => {
     try {
       await productService.delete(Number(id));
       setProducts((prev) => prev.filter((p) => p.id !== id));
+      lastFetchedAt.current = null;
       toast.success('Product deleted successfully');
     } catch (error) {
       console.error('Failed to delete product:', error);
