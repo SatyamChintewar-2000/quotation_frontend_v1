@@ -27,6 +27,8 @@ export interface Company {
   companyNameLocked?: boolean;
   // License ID — auto-generated on creation, never changes
   licenseId?: string;
+  // Subscription expiry
+  subscriptionExpiresAt?: string;
 }
 
 export interface CompanyRequest {

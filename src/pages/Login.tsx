@@ -51,9 +51,16 @@ const Login = () => {
         setError('Invalid email or password');
         toast.error('Login failed. Please check your credentials.');
       }
-    } catch (error) {
-      setError('An error occurred during login');
-      toast.error('Login failed. Please try again.');
+    } catch (err: any) {
+      const errorCode = err?.response?.data?.error;
+      const message   = err?.response?.data?.message;
+      if (errorCode === 'SUBSCRIPTION_EXPIRED') {
+        setError(message || 'Your subscription has expired. Please contact support to renew.');
+        toast.error('Subscription Expired', { description: message, duration: 8000 });
+      } else {
+        setError('An error occurred during login');
+        toast.error('Login failed. Please try again.');
+      }
     } finally {
       setIsLoading(false);
     }

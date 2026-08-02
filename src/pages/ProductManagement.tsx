@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { TopBar } from '@/components/layout/TopBar';
 import { useAuth } from '@/contexts/AuthContext';
+import { useProducts } from '@/contexts/ProductContext';
 import { productService, Product, ProductRequest } from '@/services/productService';
 import { toast } from 'sonner';
 import { SearchBar } from '@/components/common/SearchBar';
@@ -11,12 +12,12 @@ import { SortableHeader } from '@/components/common/SortableHeader';
 import { useSortable } from '@/hooks/useSortable';
 import { Pagination } from '@/components/common/Pagination';
 import {
-  Package, Plus, Edit, Trash2, X, Upload, Tag, Layers, IndianRupee,
+  Package, Plus, Edit, Trash2, X, Upload, Tag, Layers, IndianRupee, FileSpreadsheet, Download,
 } from 'lucide-react';
 
 const ITEMS_PER_PAGE = 10;
 
-const UNITS = ['piece', 'kg', 'litre', 'meter', 'box', 'set', 'dozen', 'gram', 'ml'];
+const UNITS = ['piece', 'kg', 'litre', 'meter', 'box', 'set', 'dozen', 'gram', 'ml','Nos'];
 const TAX_TYPES = ['GST', 'IGST', 'No Tax'];
 const GST_RATES = ['0', '5', '12', '18', '28'];
 
@@ -29,6 +30,8 @@ const EMPTY: ProductRequest = {
 
 const ProductManagement = () => {
   const { user } = useAuth();
+  // Use ProductContext — already cached, won't re-fetch on every page visit
+  const { products: contextProducts, loading: contextLoading, refreshProducts } = useProducts();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -39,16 +42,39 @@ const ProductManagement = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [deletingProduct, setDeletingProduct] = useState<Product | null>(null);
+  const [bulkUploading, setBulkUploading] = useState(false);
+  const bulkInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { fetchProducts(); }, []);
+  // Sync local products state from context
+  useEffect(() => {
+    // Map context product format back to the Product type this page uses
+    const mapped = contextProducts.map((p: any) => ({
+      id: Number(p.id),
+      productName: p.name,
+      productCode: p.productCode || '',
+      brand: p.brand || '',
+      category: p.category || '',
+      description: p.description || '',
+      price: p.price,
+      purchasePrice: p.purchasePrice || 0,
+      unit: p.unit,
+      quantity: p.quantity,
+      discountPercentage: p.discount,
+      taxType: p.taxType,
+      taxPercentage: p.gst,
+      expiryDate: p.expiryDate || '',
+      imagePath: p.image || '',
+      createdBy: Number(p.createdBy) || 0,
+      active: true,
+    } as Product));
+    setProducts(mapped);
+    setLoading(contextLoading);
+  }, [contextProducts, contextLoading]);
+
   useEffect(() => { setCurrentPage(1); }, [searchTerm]);
 
   const fetchProducts = async () => {
-    try {
-      setLoading(true);
-      setProducts(await productService.getAll());
-    } catch { toast.error('Failed to load products'); }
-    finally { setLoading(false); }
+    await refreshProducts(true); // force fresh fetch
   };
 
   const filtered = useMemo(() =>
@@ -186,6 +212,78 @@ const ProductManagement = () => {
     toast.success('Products exported to Excel');
   };
 
+  // Download a blank template so users know the column format
+  const handleDownloadTemplate = () => {
+    exportToExcel(
+      [{ code: 'SKU-001', name: 'Sample Product', brand: 'Brand', category: 'Category', unit: 'piece', mrp: 100, purchasePrice: 80, taxType: 'GST', gst: 18, qty: 10, discount: 0, description: 'Product description' }],
+      [
+        { header: 'Code', key: 'code', width: 12 },
+        { header: 'Product Name *', key: 'name', width: 25 },
+        { header: 'Brand', key: 'brand', width: 15 },
+        { header: 'Category', key: 'category', width: 15 },
+        { header: 'Unit', key: 'unit', width: 10 },
+        { header: 'MRP (₹) *', key: 'mrp', width: 12 },
+        { header: 'Purchase Price (₹)', key: 'purchasePrice', width: 18 },
+        { header: 'Tax Type (GST/IGST/No Tax)', key: 'taxType', width: 22 },
+        { header: 'GST (%)', key: 'gst', width: 10 },
+        { header: 'Quantity *', key: 'qty', width: 10 },
+        { header: 'Discount (%)', key: 'discount', width: 12 },
+        { header: 'Description', key: 'description', width: 30 },
+      ],
+      'product_import_template'
+    );
+    toast.success('Template downloaded — fill it and import');
+  };
+
+  // Parse uploaded Excel/CSV and send to bulk API
+  const handleBulkUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = ''; // reset so same file can be re-uploaded
+
+    try {
+      setBulkUploading(true);
+      const XLSX = await import('xlsx');
+      const data = await file.arrayBuffer();
+      const wb = XLSX.read(data, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows: any[] = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+      if (!rows.length) { toast.error('File is empty'); return; }
+
+      // Map Excel columns → ProductRequest — column headers match the template
+      const products: ProductRequest[] = rows.map((row) => ({
+        productCode:        String(row['Code'] || ''),
+        productName:        String(row['Product Name *'] || row['Product Name'] || ''),
+        brand:              String(row['Brand'] || ''),
+        category:           String(row['Category'] || ''),
+        unit:               String(row['Unit'] || 'piece'),
+        price:              Number(row['MRP (₹) *'] ?? row['MRP (₹)'] ?? row['price'] ?? 0),
+        purchasePrice:      Number(row['Purchase Price (₹)'] ?? row['purchasePrice'] ?? 0),
+        taxType:            String(row['Tax Type (GST/IGST/No Tax)'] || row['Tax Type'] || row['taxType'] || 'GST'),
+        taxPercentage:      Number(row['GST (%)'] ?? row['gst'] ?? 0),
+        quantity:           Number(row['Quantity *'] ?? row['Quantity'] ?? row['qty'] ?? 0),
+        discountPercentage: Number(row['Discount (%)'] ?? row['discount'] ?? 0),
+        description:        String(row['Description'] || row['description'] || ''),
+        imagePath:          '',  // images not supported in bulk upload
+      }));
+
+      const result = await productService.bulkCreate(products);
+      if (result.created > 0) {
+        toast.success(`✅ ${result.created} product${result.created > 1 ? 's' : ''} imported successfully`);
+        fetchProducts();
+      }
+      if (result.failed > 0) {
+        toast.error(`❌ ${result.failed} row${result.failed > 1 ? 's' : ''} failed — check format`);
+        console.warn('Bulk upload errors:', result.errors);
+      }
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Failed to import products');
+    } finally {
+      setBulkUploading(false);
+    }
+  };
+
   const field = (
     label: string, key: keyof ProductRequest, type = 'text',
     required = false, placeholder = ''
@@ -239,6 +337,26 @@ const ProductManagement = () => {
           <div className="flex items-center gap-3">
             <SearchBar value={searchTerm} onChange={setSearchTerm} placeholder="Search by name, brand, category..." className="w-72" />
             <ExportButton onClick={handleExport} disabled={!filtered.length} count={filtered.length} />
+            {/* Bulk upload template download */}
+            <button
+              onClick={handleDownloadTemplate}
+              className="btn-secondary flex items-center gap-2 text-sm"
+              title="Download blank Excel template for bulk import"
+            >
+              <Download size={16} /> Template
+            </button>
+            {/* Bulk import button */}
+            <label className={`btn-secondary flex items-center gap-2 text-sm cursor-pointer ${bulkUploading ? 'opacity-60 pointer-events-none' : ''}`} title="Import products from Excel (no images)">
+              <FileSpreadsheet size={16} />
+              {bulkUploading ? 'Importing...' : 'Import Excel'}
+              <input
+                ref={bulkInputRef}
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                onChange={handleBulkUpload}
+                className="hidden"
+              />
+            </label>
             <button onClick={() => setShowModal(true)} className="btn-primary flex items-center gap-2">
               <Plus size={18} /> Add Product
             </button>

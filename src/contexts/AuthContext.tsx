@@ -38,32 +38,29 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const refreshToken = getRefreshToken();
 
       if (storedUser && refreshToken) {
-        try {
-          setUser(JSON.parse(storedUser));
+        // Restore user from localStorage immediately — don't block on token refresh
+        setUser(JSON.parse(storedUser));
+        setLoading(false);
 
-          // Try to refresh the access token on page load
-          const response = await api.post('/auth/refresh', { refreshToken });
-          const { accessToken } = response.data;
-          setAccessToken(accessToken);
-
-          console.log('✅ Token refreshed successfully on page load');
-        } catch (error: any) {
-          console.error('❌ Failed to refresh token on load:', error.response?.status, error.message);
-
-          // Only clear if refresh token is actually invalid (401/403)
-          // Don't clear on network errors (could be temporary)
-          if (error.response?.status === 401 || error.response?.status === 403) {
-            console.log('🔒 Refresh token invalid, clearing auth data');
-            clearAccessToken();
-            clearRefreshToken();
-            localStorage.removeItem('user');
-            setUser(null);
-          } else {
-            // Network error or server error - keep user logged in
-            // The axios interceptor will handle token refresh on next API call
-            console.log('⚠️ Network/server error, keeping user logged in');
-          }
-        }
+        // Refresh the access token in the background (non-blocking)
+        api.post('/auth/refresh', { refreshToken }, { timeout: 8000 })
+          .then(response => {
+            setAccessToken(response.data.accessToken);
+            console.log('✅ Token refreshed successfully on page load');
+          })
+          .catch((error: any) => {
+            console.error('❌ Failed to refresh token on load:', error.response?.status, error.message);
+            if (error.response?.status === 401 || error.response?.status === 403) {
+              console.log('🔒 Refresh token invalid, clearing auth data');
+              clearAccessToken();
+              clearRefreshToken();
+              localStorage.removeItem('user');
+              setUser(null);
+            } else {
+              console.log('⚠️ Network/timeout error on refresh, keeping user logged in');
+            }
+          });
+        return; // loading already set to false above
       } else {
         // Clear everything if incomplete
         clearAccessToken();

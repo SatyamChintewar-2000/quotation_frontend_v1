@@ -7,6 +7,11 @@ import { toast } from 'sonner';
 import { DeleteConfirmModal } from '@/components/common/DeleteConfirmModal';
 import { StatusBadge } from '@/components/common/StatusBadge';
 
+// Module-level stale cache
+let _companyCache: Company[] | null = null;
+let _companyCacheTime = 0;
+const STALE_MS = 60_000;
+
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_REGEX = /^[6-9][0-9]{9}$/;
 const GST_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
@@ -64,10 +69,18 @@ const CompanyManagement = () => {
     fetchCompanies();
   }, []);
 
-  const fetchCompanies = async () => {
+  const fetchCompanies = async (force = false) => {
+    const now = Date.now();
+    if (!force && _companyCache && (now - _companyCacheTime) < STALE_MS) {
+      setCompanies(_companyCache);
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
       const data = await companyService.getAll();
+      _companyCache = data;
+      _companyCacheTime = Date.now();
       setCompanies(data);
     } catch (error) {
       console.error('Failed to fetch companies:', error);
@@ -125,7 +138,8 @@ const CompanyManagement = () => {
       }
       setShowModal(false);
       resetForm();
-      fetchCompanies();
+      _companyCache = null;
+      fetchCompanies(true);
     } catch (error) {
       console.error('Failed to save company:', error);
       toast.error('Failed to save company');
@@ -142,7 +156,8 @@ const CompanyManagement = () => {
       await companyService.delete(deletingCompany.id);
       toast.success('Company deleted successfully');
       setDeletingCompany(null);
-      fetchCompanies();
+      _companyCache = null;
+      fetchCompanies(true);
     } catch (error) {
       console.error('Failed to delete company:', error);
       toast.error('Failed to delete company');
@@ -153,7 +168,8 @@ const CompanyManagement = () => {
     try {
       await companyService.toggleActive(company.id);
       toast.success(`Company ${company.active ? 'deactivated' : 'activated'} successfully`);
-      fetchCompanies();
+      _companyCache = null;
+      fetchCompanies(true);
     } catch {
       toast.error('Failed to update company status');
     }

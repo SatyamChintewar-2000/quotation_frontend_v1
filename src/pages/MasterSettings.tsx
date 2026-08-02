@@ -130,8 +130,8 @@ const MasterSettings: React.FC = () => {
   const isSuperAdmin = user?.role?.toLowerCase() === 'superadmin' || user?.role?.toLowerCase() === 'super_admin';
   const [activeTab, setActiveTab] = useState<TabId>(() => {
     if (isSuperAdmin) return 'admin';
-    if (isStaff) return 'appearance';
-    return 'notifications';
+    if (isClient) return 'company';
+    return 'appearance';
   });
 
   useEffect(() => {
@@ -290,7 +290,7 @@ const MasterSettings: React.FC = () => {
   const waOn = settings.whatsapp_notifications_enabled === "true";
   const otpOn = settings.mobile_otp_login_enabled === "true";
 
-  // Build tab list based on role
+  // Build tab list based on role — Notifications hidden (feature not active)
   const tabs: { id: TabId; label: string; icon: React.ReactNode; hidden?: boolean }[] = [
     {
       id: 'admin' as TabId,
@@ -302,7 +302,7 @@ const MasterSettings: React.FC = () => {
       id: 'notifications' as TabId,
       label: 'Notifications',
       icon: <Bell size={18} />,
-      hidden: isStaff,
+      hidden: true,  // Notifications feature not active — hidden for all roles
     },
     {
       id: 'company' as TabId,
@@ -941,39 +941,6 @@ const MasterSettings: React.FC = () => {
                           Clear
                         </button>
                       )}
-                    </div>
-                  </div>
-
-                  {/* Watermark toggle */}
-                  <div className="border-t border-border mt-4 pt-4 flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-foreground">Logo Watermark</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">Show a faint logo watermark behind PDF content</p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      {companyForm.pdfWatermarkEnabled && (
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-muted-foreground">Opacity</span>
-                          <input
-                            type="range"
-                            min="0.03"
-                            max="0.20"
-                            step="0.01"
-                            value={companyForm.pdfWatermarkOpacity}
-                            onChange={(e) => { setCompanyForm((p) => ({ ...p, pdfWatermarkOpacity: parseFloat(e.target.value) })); setCompanyDirty(true); }}
-                            className="w-20"
-                          />
-                          <span className="text-xs font-mono text-muted-foreground w-8">{Math.round(companyForm.pdfWatermarkOpacity * 100)}%</span>
-                        </div>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => { setCompanyForm((p) => ({ ...p, pdfWatermarkEnabled: !p.pdfWatermarkEnabled })); setCompanyDirty(true); }}
-                        style={{ width: '52px' }}
-                        className={`relative inline-flex h-7 items-center rounded-full transition-all duration-300 focus:outline-none ${companyForm.pdfWatermarkEnabled ? 'bg-primary' : 'bg-muted-foreground/25'}`}
-                      >
-                        <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform duration-300 ${companyForm.pdfWatermarkEnabled ? 'translate-x-7' : 'translate-x-1'}`} />
-                      </button>
                     </div>
                   </div>
                 </div>

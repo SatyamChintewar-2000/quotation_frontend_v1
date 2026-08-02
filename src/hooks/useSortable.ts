@@ -7,8 +7,11 @@ export interface SortState {
   direction: SortDirection;
 }
 
-export function useSortable<T>(data: T[]) {
-  const [sort, setSort] = useState<SortState>({ key: null, direction: null });
+export function useSortable<T>(
+  data: T[],
+  defaultSort: SortState = { key: null, direction: null }
+) {
+  const [sort, setSort] = useState<SortState>(defaultSort);
 
   const handleSort = (key: string) => {
     setSort((prev) => {

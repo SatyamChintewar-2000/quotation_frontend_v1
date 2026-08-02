@@ -65,7 +65,7 @@ const AddProduct = () => {
     }
   }, [isSuperAdmin]);
 
-  const units = ['piece', 'kg', 'litre', 'meter', 'box', 'set', 'dozen'];
+  const units = ['piece', 'kg', 'litre', 'meter', 'box', 'set', 'dozen','Nos'];
   const taxTypes = ['GST', 'IGST', 'No Tax'];
   const gstRates = ['0', '5', '12', '18', '28'];
 

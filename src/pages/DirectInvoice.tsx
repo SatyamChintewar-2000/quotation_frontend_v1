@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { useAuth } from '@/contexts/AuthContext';
+import { useProducts } from '@/contexts/ProductContext';
 import { customerService, Customer } from '@/services/customerService';
 import { productService, Product } from '@/services/productService';
 import invoiceService from '@/services/invoiceService';
@@ -10,6 +11,11 @@ import {
   FileText, Users, Package, Plus, Minus, Trash2, Save,
   Calculator, AlertTriangle, ChevronDown, Search, X, Calendar, ArrowLeft,
 } from 'lucide-react';
+
+// Module-level stale cache for customers — avoids re-fetch on every visit
+let _diCustomerCache: Customer[] | null = null;
+let _diCustomerCacheTime = 0;
+const STALE_MS = 60_000;
 
 interface InvoiceItemForm {
   productId: number;
@@ -20,11 +26,15 @@ interface InvoiceItemForm {
   taxPercentage: number;
   discountInput: string;
   taxInput: string;
+  priceInput: string;
 }
 
 const DirectInvoice = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+
+  // Use ProductContext — already cached, no extra API call on each visit
+  const { products: contextProducts, loading: productsLoading } = useProducts();
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -63,18 +73,42 @@ const DirectInvoice = () => {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [customersData, productsData] = await Promise.all([
-        customerService.getAll(),
-        productService.getAll(),
-      ]);
+      const now = Date.now();
+      if (_diCustomerCache && (now - _diCustomerCacheTime) < STALE_MS) {
+        setCustomers(_diCustomerCache);
+        setLoading(false);
+        return;
+      }
+      const customersData = await customerService.getAll();
+      _diCustomerCache = customersData;
+      _diCustomerCacheTime = Date.now();
       setCustomers(customersData);
-      setProducts(productsData.filter((p) => p.active));
     } catch {
-      toast.error('Failed to load customers and products');
+      toast.error('Failed to load customers');
     } finally {
       setLoading(false);
     }
   };
+
+  // Sync products from ProductContext
+  useEffect(() => {
+    const mapped = contextProducts
+      .filter((p: any) => p.id)
+      .map((p: any) => ({
+        id: Number(p.id),
+        productName: p.name,
+        price: p.price,
+        unit: p.unit,
+        discountPercentage: p.discount,
+        taxPercentage: p.gst,
+        taxType: p.taxType,
+        imagePath: p.image || '',
+        active: true,
+        quantity: p.quantity,
+        description: p.description || '',
+      } as Product));
+    setProducts(mapped);
+  }, [contextProducts]);
 
   const selectedCustomer = customers.find((c) => c.id === selectedCustomerId);
   const filteredCustomers = customers.filter((c) =>
@@ -100,6 +134,7 @@ const DirectInvoice = () => {
       taxPercentage: product.taxType === 'No Tax' ? 0 : Number(product.taxPercentage || 0),
       discountInput: String(Number(product.discountPercentage || 0)),
       taxInput: product.taxType === 'No Tax' ? '0' : String(Number(product.taxPercentage || 0)),
+      priceInput: String(Number(product.price)),
     }]);
     toast.success(`${product.productName} added`);
   };
@@ -107,6 +142,13 @@ const DirectInvoice = () => {
   const updateQty = (id: number, qty: number) => {
     if (qty < 1) return;
     setInvoiceItems((prev) => prev.map((i) => i.productId === id ? { ...i, quantity: qty } : i));
+  };
+
+  const updatePrice = (id: number, val: string) => {
+    const num = parseFloat(val);
+    setInvoiceItems((prev) => prev.map((i) => i.productId === id
+      ? { ...i, priceInput: val, unitPrice: isNaN(num) ? 0 : Math.max(0, num) }
+      : i));
   };
 
   const updateDiscount = (id: number, val: string) => {
@@ -171,7 +213,7 @@ const DirectInvoice = () => {
     }
   };
 
-  if (loading) return (
+  if (loading || productsLoading) return (
     <div className="min-h-screen">
       <TopBar title="Direct Invoice" />
       <div className="p-6 flex items-center justify-center">
@@ -374,7 +416,10 @@ const DirectInvoice = () => {
                                   <span className="font-medium text-foreground">{item.productName}</span>
                                 </div>
                               </td>
-                              <td className="px-3 py-3 text-right text-muted-foreground">₹{item.unitPrice.toFixed(2)}</td>
+                              <td className="px-3 py-3">
+                                <input type="number" value={item.priceInput} onChange={(e) => updatePrice(item.productId, e.target.value)}
+                                  className="w-20 text-right input-field py-1 px-1 text-xs mx-auto block" min="0" step="0.01" />
+                              </td>
                               <td className="px-3 py-3">
                                 <div className="flex items-center justify-center gap-1">
                                   <button onClick={() => updateQty(item.productId, item.quantity - 1)} className="p-1 rounded bg-muted hover:bg-muted/80"><Minus size={12} /></button>

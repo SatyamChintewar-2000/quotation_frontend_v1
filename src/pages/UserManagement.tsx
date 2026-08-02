@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { TopBar } from '@/components/layout/TopBar';
-import { Plus, Edit, Trash2, Mail, Phone, Building, Filter, ToggleLeft, ToggleRight, Eye, EyeOff } from 'lucide-react';
+import { Plus, Edit, Trash2, Mail, Phone, Building, Filter, ToggleLeft, ToggleRight, Eye, EyeOff, KeyRound } from 'lucide-react';
 import { userService, UserDTO, UserRequest, RoleDTO } from '@/services/userService';
 import { companyService, Company } from '@/services/companyService';
 import { useAuth } from '@/contexts/AuthContext';
@@ -9,6 +9,13 @@ import { DeleteConfirmModal } from '@/components/common/DeleteConfirmModal';
 import { SortableHeader } from '@/components/common/SortableHeader';
 import { useSortable } from '@/hooks/useSortable';
 import { StatusBadge } from '@/components/common/StatusBadge';
+
+// Module-level stale cache for users page
+let _userCache: UserDTO[] | null = null;
+let _userCacheTime = 0;
+let _rolesCache: RoleDTO[] | null = null;
+let _userCompanyCache: Company[] | null = null;
+const STALE_MS = 60_000;
 
 const PHONE_REGEX = /^[6-9][0-9]{9}$/;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -44,47 +51,59 @@ const UserManagement = () => {
     companyId: undefined,
   });
   const [showPassword, setShowPassword] = useState(false);
+  // Password reset state
+  const [resetPasswordUser, setResetPasswordUser] = useState<UserDTO | null>(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [resettingPassword, setResettingPassword] = useState(false);
 
   useEffect(() => {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (force = false) => {
+    const now = Date.now();
+    // Serve from cache if still fresh and not forced
+    if (!force && _userCache && _rolesCache && (now - _userCacheTime) < STALE_MS) {
+      setUsers(_userCache);
+      if (currentUser?.role === 'superadmin' && _userCompanyCache) {
+        setCompanies(_userCompanyCache);
+      }
+      // Re-apply role filtering from cache
+      let filtered = _rolesCache;
+      if (currentUser?.role === 'client') filtered = _rolesCache.filter(r => r.roleName === 'STAFF');
+      else if (currentUser?.role === 'staff') filtered = [];
+      setAvailableRoles(filtered);
+      if (filtered.length > 0) setFormData(prev => ({ ...prev, roleId: filtered[0].id }));
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
       const [usersData, rolesData] = await Promise.all([
         userService.getAll(),
         userService.getRoles(),
       ]);
+      _userCache = usersData;
+      _rolesCache = rolesData;
+      _userCacheTime = Date.now();
       setUsers(usersData);
 
-      // Fetch companies for SUPER_ADMIN
       if (currentUser?.role === 'superadmin') {
         try {
           const companiesData = await companyService.getAll();
+          _userCompanyCache = companiesData;
           setCompanies(companiesData);
         } catch (error) {
           console.error('Failed to fetch companies:', error);
         }
       }
 
-      // Filter roles based on current user's role
       let filtered = rolesData;
-      if (currentUser?.role === 'client') {
-        // CLIENT can only add STAFF
-        filtered = rolesData.filter(r => r.roleName === 'STAFF');
-      } else if (currentUser?.role === 'staff') {
-        // STAFF cannot add any users (will be hidden in UI)
-        filtered = [];
-      }
-      // SUPER_ADMIN can add all roles
-
+      if (currentUser?.role === 'client') filtered = rolesData.filter(r => r.roleName === 'STAFF');
+      else if (currentUser?.role === 'staff') filtered = [];
       setAvailableRoles(filtered);
-
-      // Set default roleId
-      if (filtered.length > 0) {
-        setFormData(prev => ({ ...prev, roleId: filtered[0].id }));
-      }
+      if (filtered.length > 0) setFormData(prev => ({ ...prev, roleId: filtered[0].id }));
     } catch (error) {
       console.error('Failed to fetch data:', error);
       toast.error('Failed to load data');
@@ -137,7 +156,8 @@ const UserManagement = () => {
       }
       setShowModal(false);
       resetForm();
-      fetchData();
+      _userCache = null;
+      fetchData(true);
     } catch (error: any) {
       console.error('Failed to save user:', error);
       const msg = error?.response?.data?.message || error?.response?.data?.error || 'Failed to save user';
@@ -158,7 +178,8 @@ const UserManagement = () => {
         active: !user.active,
       });
       toast.success(`User ${user.active ? 'deactivated' : 'activated'} successfully`);
-      fetchData();
+      _userCache = null;
+      fetchData(true);
     } catch (error) {
       toast.error('Failed to update user status');
     }
@@ -173,7 +194,8 @@ const UserManagement = () => {
     try {
       await userService.delete(deletingUser.id);
       toast.success('User deleted successfully');
-      fetchData();
+      _userCache = null;
+      fetchData(true);
     } catch (error) {
       console.error('Failed to delete user:', error);
       toast.error('Failed to delete user');
@@ -209,7 +231,26 @@ const UserManagement = () => {
       companyId: undefined,
     });
     setFormErrors({});
-    setShowPassword(false); // Reset password visibility
+    setShowPassword(false);
+  };
+
+  const handleResetPassword = async () => {
+    if (!resetPasswordUser) return;
+    if (!newPassword || newPassword.length < 6) {
+      toast.error('Password must be at least 6 characters');
+      return;
+    }
+    try {
+      setResettingPassword(true);
+      await userService.resetPassword(resetPasswordUser.id, newPassword);
+      toast.success(`Password reset successfully for ${resetPasswordUser.name}`);
+      setResetPasswordUser(null);
+      setNewPassword('');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Failed to reset password');
+    } finally {
+      setResettingPassword(false);
+    }
   };
 
   // Get selected role name
@@ -229,6 +270,12 @@ const UserManagement = () => {
 
   // Button label: client sees "Add Staff", superadmin sees "Add User"
   const addButtonLabel = currentUser?.role === 'client' ? 'Add Staff' : 'Add User';
+
+  // User limit for CLIENT role
+  const USER_LIMIT = 5;
+  const isClient = currentUser?.role === 'client';
+  const activeUserCount = users.filter(u => u.active).length;
+  const atUserLimit = isClient && activeUserCount >= USER_LIMIT;
 
   const handleCloseModal = () => {
     setShowModal(false);
@@ -271,14 +318,60 @@ const UserManagement = () => {
           </div>
           {canAddUsers && (
             <button
-              onClick={() => setShowModal(true)}
-              className="btn-primary flex items-center gap-2"
+              onClick={() => {
+                if (atUserLimit) {
+                  toast.error('User limit reached. Please contact support to add more users.');
+                  return;
+                }
+                setShowModal(true);
+              }}
+              className={`btn-primary flex items-center gap-2 ${atUserLimit ? 'opacity-60' : ''}`}
+              title={atUserLimit ? `User limit of ${USER_LIMIT} reached` : addButtonLabel}
             >
               <Plus size={20} />
               {addButtonLabel}
             </button>
           )}
         </div>
+
+        {/* User limit banner — shown to CLIENT only */}
+        {isClient && (
+          <div className={`rounded-xl border p-4 flex items-center justify-between gap-4 ${
+            atUserLimit
+              ? 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800'
+              : 'bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800'
+          }`}>
+            <div className="flex items-center gap-3">
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                atUserLimit ? 'bg-red-500' : 'bg-blue-500'
+              }`}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+                  <path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                </svg>
+              </div>
+              <div>
+                <p className={`font-semibold text-sm ${atUserLimit ? 'text-red-900 dark:text-red-100' : 'text-blue-900 dark:text-blue-100'}`}>
+                  {atUserLimit ? 'User Limit Reached' : `User Seats: ${activeUserCount} / ${USER_LIMIT} used`}
+                </p>
+                <p className={`text-xs mt-0.5 ${atUserLimit ? 'text-red-700 dark:text-red-300' : 'text-blue-700 dark:text-blue-300'}`}>
+                  {atUserLimit
+                    ? 'Your plan allows 5 users. To add more, please contact support to purchase additional licenses.'
+                    : `You can add ${USER_LIMIT - activeUserCount} more staff user${USER_LIMIT - activeUserCount !== 1 ? 's' : ''} on your current plan.`
+                  }
+                </p>
+              </div>
+            </div>
+            {atUserLimit && (
+              <a
+                href="mailto:support@quoteflow.in?subject=Additional User Licenses&body=Hi, I have reached the 5-user limit and would like to purchase additional user licenses."
+                className="flex-shrink-0 px-4 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white text-xs font-semibold transition-colors"
+              >
+                Contact Support
+              </a>
+            )}
+          </div>
+        )}
 
         {/* Company Filter (SUPER_ADMIN only) */}
         {isSuperAdmin && companies.length > 0 && (
@@ -397,6 +490,16 @@ const UserManagement = () => {
                         >
                           <Edit size={16} />
                         </button>
+                        {/* Reset password — shown to SUPER_ADMIN and CLIENT, not for their own account */}
+                        {canAddUsers && user.id !== currentUser?.id && (
+                          <button
+                            onClick={() => { setResetPasswordUser(user); setNewPassword(''); setShowNewPassword(false); }}
+                            className="p-1.5 rounded-lg text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-colors"
+                            title="Reset Password"
+                          >
+                            <KeyRound size={16} />
+                          </button>
+                        )}
                         <button
                           onClick={() => handleToggleActive(user)}
                           className={`p-1.5 rounded-lg transition-colors ${user.active ? 'text-green-600 hover:bg-green-50' : 'text-muted-foreground hover:bg-muted'}`}
@@ -574,6 +677,69 @@ const UserManagement = () => {
         title="Delete User"
         itemName={deletingUser?.name}
       />
+
+      {/* Reset Password Modal */}
+      {resetPasswordUser && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-card rounded-xl shadow-xl max-w-sm w-full p-6">
+            <div className="flex items-center gap-3 mb-5">
+              <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-950/40 flex items-center justify-center">
+                <KeyRound size={20} className="text-amber-600" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-foreground">Reset Password</h3>
+                <p className="text-xs text-muted-foreground">for {resetPasswordUser.name}</p>
+              </div>
+            </div>
+            <div className="mb-5">
+              <label className="block text-sm font-medium text-foreground mb-1.5">New Password *</label>
+              <div className="relative">
+                <input
+                  type={showNewPassword ? 'text' : 'password'}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="input-field pr-10"
+                  placeholder="Min. 6 characters"
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowNewPassword(p => !p)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+              {newPassword && newPassword.length < 6 && (
+                <p className="text-xs text-destructive mt-1">Must be at least 6 characters</p>
+              )}
+            </div>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => { setResetPasswordUser(null); setNewPassword(''); }}
+                className="flex-1 btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleResetPassword}
+                disabled={resettingPassword || !newPassword || newPassword.length < 6}
+                className="flex-1 btn-primary disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {resettingPassword ? (
+                  <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                  </svg>
+                ) : <KeyRound size={15} />}
+                {resettingPassword ? 'Resetting...' : 'Reset Password'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -11,6 +11,11 @@ import { ExportButton } from '@/components/common/ExportButton';
 import { exportToExcel } from '@/utils/excelExport';
 import NumericInput from '@/components/common/NumericInput';
 
+// Module-level stale cache — survives page navigation, resets on write
+let _enquiryCache: Enquiry[] | null = null;
+let _enquiryCacheTime = 0;
+const STALE_MS = 60_000; // 60 seconds
+
 const ITEMS_PER_PAGE = 9;
 
 const EMPTY_FORM: EnquiryRequest = {
@@ -49,10 +54,19 @@ const EnquiryManagement = () => {
   useEffect(() => { fetchEnquiries(); }, []);
   useEffect(() => { setCurrentPage(1); }, [searchTerm]);
 
-  const fetchEnquiries = async () => {
+  const fetchEnquiries = async (force = false) => {
+    const now = Date.now();
+    if (!force && _enquiryCache && (now - _enquiryCacheTime) < STALE_MS) {
+      setEnquiries(_enquiryCache);
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
-      setEnquiries(await enquiryService.getAll());
+      const data = await enquiryService.getAll();
+      _enquiryCache = data;
+      _enquiryCacheTime = Date.now();
+      setEnquiries(data);
     } catch {
       toast.error('Failed to load enquiries');
     } finally {
@@ -107,7 +121,8 @@ const EnquiryManagement = () => {
       }
       setShowModal(false);
       resetForm();
-      fetchEnquiries();
+      _enquiryCache = null; // invalidate cache so next fetch gets fresh data
+      fetchEnquiries(true);
     } catch (err: any) {
       toast.error(err?.response?.data?.message || 'Failed to save enquiry');
     }
@@ -147,7 +162,8 @@ const EnquiryManagement = () => {
     try {
       await enquiryService.delete(deleting.id);
       toast.success('Enquiry deleted');
-      fetchEnquiries();
+      _enquiryCache = null; // invalidate cache
+      fetchEnquiries(true);
     } catch {
       toast.error('Failed to delete enquiry');
     }

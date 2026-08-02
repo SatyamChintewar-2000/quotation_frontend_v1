@@ -219,7 +219,10 @@ const QuotationPrintView = React.forwardRef<HTMLDivElement, Props>(({ quotation,
         boxSizing: 'border-box',
         padding: '0',
         position: 'relative',
-        // No overflow hidden — must capture full height
+        // Add page break styles directly
+        pageBreakInside: 'avoid',
+        orphans: 2,
+        widows: 2,
       }}
     >
       {/* ── Watermark — only shown in browser view, never in PDF capture ── */}
@@ -351,7 +354,16 @@ const QuotationPrintView = React.forwardRef<HTMLDivElement, Props>(({ quotation,
             <div style={{ width: '90px', height: '3px', background: PRIMARY_COLOR, marginTop: '5px' }} />
           </div>
 
-          <table style={{ width: '100%', borderCollapse: 'collapse', border: `2px solid ${BORDER_COLOR}` }}>
+          <table style={{ 
+            width: '100%', 
+            borderCollapse: 'collapse', 
+            border: `2px solid ${BORDER_COLOR}`,
+            // Enhanced page break controls for table
+            pageBreakInside: 'auto',
+            pageBreakBefore: 'auto',
+            pageBreakAfter: 'auto',
+            tableLayout: 'fixed'
+          }}>
             <thead>
               <tr style={{ background: PRIMARY_COLOR }}>
                 {[
@@ -400,9 +412,14 @@ const QuotationPrintView = React.forwardRef<HTMLDivElement, Props>(({ quotation,
                     style={{
                       background: rowBg,
                       borderBottom: `1px solid ${BORDER_COLOR}`,
-                      // Prevent row from splitting across pages in print
+                      // Enhanced page break controls to prevent row splitting
                       pageBreakInside: 'avoid',
                       breakInside: 'avoid',
+                      pageBreakBefore: 'auto',
+                      pageBreakAfter: 'auto',
+                      // Ensure minimum height for proper page breaks
+                      minHeight: '100px',
+                      height: 'auto',
                     }}
                   >
                     {/* Sr No */}
@@ -671,7 +688,7 @@ const QuotationPrintView = React.forwardRef<HTMLDivElement, Props>(({ quotation,
           </div>
         </div>
 
-      </div>{/* end z-index wrapper */}
+      </div>
     </div>
   );
 });
