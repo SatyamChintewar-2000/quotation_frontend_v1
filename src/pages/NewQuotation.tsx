@@ -140,6 +140,8 @@ const NewQuotation = () => {
         taxType: p.taxType,
         imagePath: p.image,
         active: true,
+        netWeight: p.netWeight,
+        cbm: p.cbm,
       }));
     setProducts(active);
   }, [contextProducts]);
@@ -296,8 +298,21 @@ const NewQuotation = () => {
       return sum + s.servicePrice + tax;
     }, 0);
     const grandTotal = subtotal - totalDiscount + totalTax + serviceTotals;
-    return { subtotal, totalDiscount, totalTax, serviceTotals, grandTotal };
-  }, [quotationItems, quotationDiscountPercentage, services]);
+
+    // Weight & CBM totals (sum across all items × quantity)
+    const totalNetWeight = quotationItems.reduce((sum, i) => {
+      const prod = products.find((p) => p.id === i.productId);
+      const w = prod?.netWeight ?? 0;
+      return sum + (w ? w * i.quantity : 0);
+    }, 0);
+    const totalCbm = quotationItems.reduce((sum, i) => {
+      const prod = products.find((p) => p.id === i.productId);
+      const c = prod?.cbm ?? 0;
+      return sum + (c ? c * i.quantity : 0);
+    }, 0);
+
+    return { subtotal, totalDiscount, totalTax, serviceTotals, grandTotal, totalNetWeight, totalCbm };
+  }, [quotationItems, quotationDiscountPercentage, services, products]);
 
   const saveQuotation = async (status: 'DRAFT' | 'GENERATED' = 'DRAFT') => {
     if (!selectedCustomerId) { toast.error('Please select a customer'); return; }
@@ -689,6 +704,24 @@ const NewQuotation = () => {
                     <span className="text-foreground">Grand Total</span>
                     <span className="text-primary">₹{totals.grandTotal.toFixed(2)}</span>
                   </div>
+                  {/* Weight & CBM totals — shown only when at least one product has them */}
+                  {(totals.totalNetWeight > 0 || totals.totalCbm > 0) && (
+                    <>
+                      <div className="h-px bg-border my-2" />
+                      {totals.totalNetWeight > 0 && (
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>Total Net Weight</span>
+                          <span className="font-medium text-foreground">{totals.totalNetWeight.toFixed(3)} kg</span>
+                        </div>
+                      )}
+                      {totals.totalCbm > 0 && (
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>Total CBM</span>
+                          <span className="font-medium text-foreground">{totals.totalCbm.toFixed(4)} m&#179;</span>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
               </div>
             )}

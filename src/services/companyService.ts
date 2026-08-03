@@ -29,6 +29,12 @@ export interface Company {
   licenseId?: string;
   // Subscription expiry
   subscriptionExpiresAt?: string;
+  // CBM / Weight / USD export column toggles (V28)
+  showWeightColumn?: boolean;
+  showCbmColumn?: boolean;
+  showUsdColumn?: boolean;
+  ratePerCbm?: number;
+  usdExchangeRate?: number;
 }
 
 export interface CompanyRequest {
@@ -52,6 +58,12 @@ export interface CompanyRequest {
   pdfAccentColor?: string;
   pdfWatermarkEnabled?: boolean;
   pdfWatermarkOpacity?: number;
+  // CBM / Weight / USD export column toggles (V28)
+  showWeightColumn?: boolean;
+  showCbmColumn?: boolean;
+  showUsdColumn?: boolean;
+  ratePerCbm?: number;
+  usdExchangeRate?: number;
 }
 
 export const companyService = {

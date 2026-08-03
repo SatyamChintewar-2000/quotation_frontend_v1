@@ -3,6 +3,7 @@ import { TopBar } from '@/components/layout/TopBar';
 import { useAuth } from '@/contexts/AuthContext';
 import { useProducts } from '@/contexts/ProductContext';
 import { productService, Product, ProductRequest } from '@/services/productService';
+import { companyService } from '@/services/companyService';
 import { toast } from 'sonner';
 import { SearchBar } from '@/components/common/SearchBar';
 import { ExportButton } from '@/components/common/ExportButton';
@@ -26,6 +27,7 @@ const EMPTY: ProductRequest = {
   description: '', price: 0, purchasePrice: 0,
   unit: 'piece', quantity: 0, discountPercentage: 0,
   taxType: 'GST', taxPercentage: 18, expiryDate: '', imagePath: '',
+  netWeight: undefined, cbm: undefined,
 };
 
 const ProductManagement = () => {
@@ -44,6 +46,23 @@ const ProductManagement = () => {
   const [deletingProduct, setDeletingProduct] = useState<Product | null>(null);
   const [bulkUploading, setBulkUploading] = useState(false);
   const bulkInputRef = useRef<HTMLInputElement>(null);
+
+  // Company export column toggles — controls weight/CBM fields in the modal
+  const [showWeightField, setShowWeightField] = useState(false);
+  const [showCbmField, setShowCbmField] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    const isSuperAdmin = user.role === 'superadmin' || user.role === 'SUPER_ADMIN';
+    if (!isSuperAdmin) {
+      companyService.getMyCompany()
+        .then((c) => {
+          setShowWeightField(Boolean(c.showWeightColumn));
+          setShowCbmField(Boolean(c.showCbmColumn));
+        })
+        .catch(() => {});
+    }
+  }, [user]);
 
   // Sync local products state from context
   useEffect(() => {
@@ -66,6 +85,8 @@ const ProductManagement = () => {
       imagePath: p.image || '',
       createdBy: Number(p.createdBy) || 0,
       active: true,
+      netWeight: p.netWeight,
+      cbm: p.cbm,
     } as Product));
     setProducts(mapped);
     setLoading(contextLoading);
@@ -137,6 +158,8 @@ const ProductManagement = () => {
       taxPercentage: p.taxPercentage,
       expiryDate: p.expiryDate || '',
       imagePath: p.imagePath || '',
+      netWeight: p.netWeight ?? undefined,
+      cbm: p.cbm ?? undefined,
     });
     setImagePreview(p.imagePath || '');
     setShowModal(true);
@@ -545,6 +568,48 @@ const ProductManagement = () => {
                   className="input-field resize-none"
                 />
               </div>
+
+              {/* Export / Logistics — shown only when company has toggles enabled */}
+              {(showWeightField || showCbmField) && (
+                <div className="space-y-3 pt-1">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 10V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l2-1.14"/><path d="m7.5 4.27 9 5.15"/><polyline points="3.29 7 12 12 20.71 7"/><line x1="12" x2="12" y1="22" y2="12"/></svg>
+                    Export / Logistics (per unit)
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {showWeightField && (
+                      <div>
+                        <label className="block text-sm font-medium text-foreground mb-1.5">Net Weight (kg/unit)</label>
+                        <input
+                          type="number"
+                          value={formData.netWeight ?? ''}
+                          onChange={(e) => setFormData((p) => ({ ...p, netWeight: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
+                          placeholder="e.g. 12.500"
+                          step="0.001"
+                          min="0"
+                          className="input-field"
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">Weight per unit in kilograms</p>
+                      </div>
+                    )}
+                    {showCbmField && (
+                      <div>
+                        <label className="block text-sm font-medium text-foreground mb-1.5">CBM (m³/unit)</label>
+                        <input
+                          type="number"
+                          value={formData.cbm ?? ''}
+                          onChange={(e) => setFormData((p) => ({ ...p, cbm: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
+                          placeholder="e.g. 0.1500"
+                          step="0.0001"
+                          min="0"
+                          className="input-field"
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">Volume per unit in cubic metres</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Image Upload */}
               <div>

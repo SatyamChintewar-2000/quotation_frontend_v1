@@ -18,6 +18,9 @@ interface Product {
   image?: string;
   createdBy: string;
   companyId?: number; // For SUPER_ADMIN to specify company
+  // Optional: weight and volume per unit
+  netWeight?: number;
+  cbm?: number;
 }
 
 interface ProductContextType {
@@ -46,6 +49,8 @@ const mapAPIProductToProduct = (apiProduct: APIProduct): Product => ({
   description: apiProduct.description || '',
   image: apiProduct.imagePath,
   createdBy: apiProduct.createdBy?.toString() || '',
+  netWeight: apiProduct.netWeight,
+  cbm: apiProduct.cbm,
 });
 
 // Helper function to map frontend product to API request
@@ -61,6 +66,8 @@ const mapProductToAPIRequest = (product: Omit<Product, 'id'> | Partial<Product>)
   expiryDate: product.expiryDate,
   imagePath: product.image,
   companyId: product.companyId ? Number(product.companyId) : undefined,
+  netWeight: product.netWeight,
+  cbm: product.cbm,
 });
 
 export const ProductProvider = ({ children }: { children: ReactNode }) => {

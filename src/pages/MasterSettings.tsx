@@ -116,6 +116,9 @@ const MasterSettings: React.FC = () => {
     bankName: '', accountNumber: '', ifscCode: '', branchName: '', upiId: '',
     // Feature 1: PDF Theme
     pdfThemeName: 'navy', pdfAccentColor: '', pdfWatermarkEnabled: false, pdfWatermarkOpacity: 0.07,
+    // Feature V28: Export / Logistics columns
+    showWeightColumn: false, showCbmColumn: false, showUsdColumn: false,
+    ratePerCbm: 0, usdExchangeRate: 83,
   });
   const [logoPreview, setLogoPreview] = useState('');
   const [companySaving, setCompanySaving] = useState(false);
@@ -168,6 +171,12 @@ const MasterSettings: React.FC = () => {
             pdfAccentColor: c.pdfAccentColor || '',
             pdfWatermarkEnabled: c.pdfWatermarkEnabled ?? false,
             pdfWatermarkOpacity: c.pdfWatermarkOpacity ?? 0.07,
+            // Feature V28: Export / Logistics columns
+            showWeightColumn: c.showWeightColumn ?? false,
+            showCbmColumn: c.showCbmColumn ?? false,
+            showUsdColumn: c.showUsdColumn ?? false,
+            ratePerCbm: c.ratePerCbm ?? 0,
+            usdExchangeRate: c.usdExchangeRate ?? 83,
           });
           setLogoPreview(c.logo || '');
         }).catch(() => { })
@@ -942,6 +951,103 @@ const MasterSettings: React.FC = () => {
                         </button>
                       )}
                     </div>
+                  </div>
+                </div>
+
+                {/* Export & Logistics Columns — Feature V28 */}
+                <div className="bg-card border border-border rounded-2xl p-6">
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className="w-7 h-7 rounded-lg bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-orange-600 dark:text-orange-400"><path d="M21 10V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l2-1.14"/><path d="m7.5 4.27 9 5.15"/><polyline points="3.29 7 12 12 20.71 7"/><line x1="12" x2="12" y1="22" y2="12"/><circle cx="18.5" cy="15.5" r="2.5"/><path d="M20.27 17.27 22 19"/></svg>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Export &amp; Logistics Columns</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">Show weight, CBM, and USD pricing in quotation PDFs</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 space-y-4">
+                    {/* Show Weight Column */}
+                    <div className="flex items-center justify-between p-4 rounded-xl bg-muted/40 border border-border">
+                      <div>
+                        <p className="text-sm font-medium text-foreground">Net Weight Column</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">Shows total net weight (kg) in quotation PDF summary</p>
+                      </div>
+                      <Toggle
+                        enabled={companyForm.showWeightColumn}
+                        onToggle={() => { setCompanyForm((p) => ({ ...p, showWeightColumn: !p.showWeightColumn })); setCompanyDirty(true); }}
+                        color="bg-orange-500"
+                      />
+                    </div>
+
+                    {/* Show CBM Column */}
+                    <div className="flex items-center justify-between p-4 rounded-xl bg-muted/40 border border-border">
+                      <div>
+                        <p className="text-sm font-medium text-foreground">CBM Column</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">Shows total volume (m&#179;) in quotation PDF summary</p>
+                      </div>
+                      <Toggle
+                        enabled={companyForm.showCbmColumn}
+                        onToggle={() => { setCompanyForm((p) => ({ ...p, showCbmColumn: !p.showCbmColumn })); setCompanyDirty(true); }}
+                        color="bg-blue-500"
+                      />
+                    </div>
+
+                    {/* Show USD Column — only meaningful with CBM */}
+                    <div className={`flex items-center justify-between p-4 rounded-xl border transition-opacity ${companyForm.showCbmColumn ? 'bg-muted/40 border-border' : 'bg-muted/20 border-border opacity-50'}`}>
+                      <div>
+                        <p className="text-sm font-medium text-foreground">USD Freight Column</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">Calculates freight cost in USD and INR using CBM × rate</p>
+                        {!companyForm.showCbmColumn && (
+                          <p className="text-xs text-amber-600 mt-1">Enable CBM column first</p>
+                        )}
+                      </div>
+                      <Toggle
+                        enabled={companyForm.showUsdColumn && companyForm.showCbmColumn}
+                        onToggle={() => {
+                          if (!companyForm.showCbmColumn) return;
+                          setCompanyForm((p) => ({ ...p, showUsdColumn: !p.showUsdColumn }));
+                          setCompanyDirty(true);
+                        }}
+                        color="bg-green-500"
+                      />
+                    </div>
+
+                    {/* Rate per CBM and USD Exchange Rate — shown when USD column is on */}
+                    {companyForm.showCbmColumn && companyForm.showUsdColumn && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                        <div>
+                          <label className="block text-sm font-medium text-foreground mb-1.5">
+                            Freight Rate (USD / m&#179;)
+                          </label>
+                          <input
+                            type="number"
+                            value={companyForm.ratePerCbm}
+                            min="0"
+                            step="0.01"
+                            onChange={(e) => { setCompanyForm((p) => ({ ...p, ratePerCbm: parseFloat(e.target.value) || 0 })); setCompanyDirty(true); }}
+                            className="input-field"
+                            placeholder="e.g. 250"
+                          />
+                          <p className="text-xs text-muted-foreground mt-1">USD charged per cubic metre of cargo</p>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-foreground mb-1.5">
+                            USD Exchange Rate (₹ per $1)
+                          </label>
+                          <input
+                            type="number"
+                            value={companyForm.usdExchangeRate}
+                            min="1"
+                            step="0.01"
+                            onChange={(e) => { setCompanyForm((p) => ({ ...p, usdExchangeRate: parseFloat(e.target.value) || 83 })); setCompanyDirty(true); }}
+                            className="input-field"
+                            placeholder="e.g. 83"
+                          />
+                          <p className="text-xs text-muted-foreground mt-1">Used to convert freight USD → INR on the PDF</p>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 
