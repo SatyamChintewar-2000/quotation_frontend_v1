@@ -118,6 +118,8 @@ const QuotationHistory = () => {
         ...d,
         grandTotal: d.totalAmount ?? d.grandTotal ?? 0,
         clientName: d.customerName || d.clientName || '',
+        customerAddress: d.customerAddress || '',
+        shippingAddress: d.shippingAddress || '',
         items,
       });
     } catch {

@@ -6,6 +6,7 @@ export interface InvoiceItem {
   productId: number;
   productName: string;
   productDescription?: string;
+  hsnCode?: string;
   quantity: number;
   unitPrice: number;
   discountPercentage: number;
@@ -47,6 +48,12 @@ export interface Invoice {
   paymentStatus: 'PENDING' | 'PARTIAL' | 'PAID';
   notes?: string;
   termsAndConditions?: string;
+  documentType?: 'INVOICE' | 'PROFORMA_INVOICE';
+  gstType?: 'IGST' | 'SGST_CGST';
+  customerAddress?: string;
+  shippingAddress?: string;
+  deliveryDate?: string;
+  expiryDate?: string;
   emailSent: boolean;
   emailSentAt?: string;
   createdBy?: number;
@@ -62,14 +69,19 @@ export interface Invoice {
 }
 
 export interface InvoiceRequest {
-  quotationId?: number; // Optional for direct invoices
-  customerId?: number; // Required for direct invoices
-  customerName?: string; // Optional for direct invoices
+  quotationId?: number;
+  customerId?: number;
+  customerName?: string;
   invoiceDate: string;
   dueDate: string;
   discountPercentage?: number;
   notes?: string;
   termsAndConditions?: string;
+  documentType?: 'INVOICE' | 'PROFORMA_INVOICE';
+  gstType?: 'IGST' | 'SGST_CGST';
+  shippingAddress?: string;
+  deliveryDate?: string;
+  expiryDate?: string;
   items?: InvoiceItem[];
 }
 

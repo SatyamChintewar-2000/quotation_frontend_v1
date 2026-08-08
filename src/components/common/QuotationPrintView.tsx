@@ -35,6 +35,7 @@ interface QuotationData {
   customerName?: string;
   customerPhone?: string;
   customerAddress?: string;
+  shippingAddress?: string;
   createdAt: string;
   status: string;
   expiryDate?: string;
@@ -312,6 +313,14 @@ const QuotationPrintView = React.forwardRef<HTMLDivElement, Props>(({ quotation,
                 📍 {quotation.customerAddress}
               </div>
             )}
+            {quotation.shippingAddress && (
+              <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: `1px dashed ${BORDER_COLOR}` }}>
+                <div style={{ fontSize: '10px', color: TEXT_GRAY, marginBottom: '4px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px' }}>Ship To:</div>
+                <div style={{ fontSize: '11px', color: TEXT_DARK, lineHeight: '1.7', fontWeight: '500' }}>
+                  📦 {quotation.shippingAddress}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* QUOTATION title */}
@@ -336,8 +345,14 @@ const QuotationPrintView = React.forwardRef<HTMLDivElement, Props>(({ quotation,
                 </tr>
                 {quotation.deliveryDate && (
                   <tr>
-                    <td style={{ color: TEXT_GRAY, paddingRight: '16px', fontWeight: '700', whiteSpace: 'nowrap' }}>Delivery Date:</td>
-                    <td style={{ fontWeight: '800', color: TEXT_DARK }}>{delivDate}</td>
+                    <td style={{ color: TEXT_GRAY, paddingRight: '16px', fontWeight: '700', whiteSpace: 'nowrap', paddingBottom: '10px' }}>Delivery Date:</td>
+                    <td style={{ fontWeight: '800', color: TEXT_DARK, paddingBottom: '10px' }}>{delivDate}</td>
+                  </tr>
+                )}
+                {quotation.expiryDate && (
+                  <tr>
+                    <td style={{ color: TEXT_GRAY, paddingRight: '16px', fontWeight: '700', whiteSpace: 'nowrap' }}>Expiry Date:</td>
+                    <td style={{ fontWeight: '800', color: '#dc2626' }}>{fmtDate(quotation.expiryDate)}</td>
                   </tr>
                 )}
               </tbody>

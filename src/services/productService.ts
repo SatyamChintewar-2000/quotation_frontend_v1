@@ -14,6 +14,7 @@ export interface Product {
   discountPercentage: number;
   taxType: string;
   taxPercentage: number;
+  hsnCode?: string;
   expiryDate?: string;
   imagePath?: string;
   companyId?: number;
@@ -37,6 +38,7 @@ export interface ProductRequest {
   discountPercentage?: number;
   taxType?: string;
   taxPercentage?: number;
+  hsnCode?: string;
   expiryDate?: string;
   imagePath?: string;
   companyId?: number; // Required for SUPER_ADMIN

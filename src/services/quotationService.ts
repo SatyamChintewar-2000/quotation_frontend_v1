@@ -30,6 +30,8 @@ export interface Quotation {
   customerId: number;
   customerName?: string;
   customerPhone?: string;
+  customerAddress?: string;
+  shippingAddress?: string;
   subtotal: number;
   totalDiscount: number;
   totalGst: number;
@@ -73,6 +75,8 @@ export interface QuotationRequest {
   notes?: string;
   termsAndConditions?: string;
   discountPercentage?: number;
+  customerAddress?: string;
+  shippingAddress?: string;
 }
 
 export interface QuotationPageResponse {

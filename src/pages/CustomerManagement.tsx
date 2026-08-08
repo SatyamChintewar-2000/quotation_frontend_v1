@@ -26,6 +26,7 @@ const CustomerManagement = () => {
     email: '',
     phone: '',
     address: '',
+    shippingAddress: '',
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [searchTerm, setSearchTerm] = useState('');
@@ -157,6 +158,7 @@ const CustomerManagement = () => {
       email: customer.email,
       phone: customer.phone,
       address: customer.address || '',
+      shippingAddress: customer.shippingAddress || '',
     });
     setShowModal(true);
   };
@@ -168,6 +170,7 @@ const CustomerManagement = () => {
       email: '',
       phone: '',
       address: '',
+      shippingAddress: '',
     });
     setErrors({});
   };
@@ -425,7 +428,20 @@ const CustomerManagement = () => {
                   onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                   className="input-field"
                   rows={3}
-                  placeholder="Enter customer address"
+                  placeholder="Enter billing address"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">
+                  Shipping Address
+                </label>
+                <textarea
+                  value={formData.shippingAddress}
+                  onChange={(e) => setFormData({ ...formData, shippingAddress: e.target.value })}
+                  className="input-field"
+                  rows={3}
+                  placeholder="Enter shipping address (optional, leave blank if same as billing)"
                 />
               </div>
 

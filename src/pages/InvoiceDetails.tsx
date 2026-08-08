@@ -197,7 +197,14 @@ const InvoiceDetails = () => {
         <div className="bg-white rounded-lg shadow-lg p-8 mb-8">
           <div className="flex justify-between items-start mb-6">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">{invoice.invoiceNumber}</h1>
+              <div className="flex items-center gap-3">
+                <h1 className="text-3xl font-bold text-gray-900">{invoice.invoiceNumber}</h1>
+                {invoice.documentType === 'PROFORMA_INVOICE' && (
+                  <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-200">
+                    Proforma Invoice
+                  </span>
+                )}
+              </div>
               <p className="text-gray-600 mt-1">Invoice Date: {formatDate(invoice.invoiceDate)}</p>
             </div>
             <div className="text-right">
@@ -212,16 +219,43 @@ const InvoiceDetails = () => {
               <h3 className="text-sm font-semibold text-gray-700 uppercase mb-2">Bill To</h3>
               <p className="text-lg font-semibold text-gray-900">{invoice.customerName}</p>
               <p className="text-gray-600 text-sm mt-1">Company: {invoice.companyName}</p>
+              {invoice.customerAddress && (
+                <p className="text-gray-500 text-sm mt-1">📍 {invoice.customerAddress}</p>
+              )}
+              {invoice.shippingAddress && (
+                <div className="mt-3">
+                  <p className="text-xs font-semibold text-gray-500 uppercase">Ship To</p>
+                  <p className="text-gray-600 text-sm mt-0.5">📦 {invoice.shippingAddress}</p>
+                </div>
+              )}
             </div>
             <div>
               <h3 className="text-sm font-semibold text-gray-700 uppercase mb-2">Invoice Details</h3>
               <div className="text-sm text-gray-600 space-y-1">
+                {invoice.documentType && invoice.documentType !== 'INVOICE' && (
+                  <p>
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-200">
+                      Proforma Invoice
+                    </span>
+                  </p>
+                )}
                 <p>
                   <span className="font-medium">Invoice Date:</span> {formatDate(invoice.invoiceDate)}
                 </p>
                 <p>
                   <span className="font-medium">Due Date:</span> {formatDate(invoice.dueDate)}
                 </p>
+                {invoice.deliveryDate && (
+                  <p>
+                    <span className="font-medium">Delivery Date:</span> {formatDate(invoice.deliveryDate)}
+                  </p>
+                )}
+                {invoice.expiryDate && (
+                  <p>
+                    <span className="font-medium">Valid Till:</span>{' '}
+                    <span className="text-red-600 font-medium">{formatDate(invoice.expiryDate)}</span>
+                  </p>
+                )}
               </div>
             </div>
           </div>
