@@ -24,6 +24,8 @@ export interface PdfItem {
   quantity: number;
   discountPercentage?: number;
   discount?: number;
+  /** Flat rupee discount amount — when > 0, used directly for PDF display */
+  discountAmount?: number;
   taxPercentage?: number;
   gst?: number;
   itemTotal?: number;
@@ -37,6 +39,8 @@ export interface PdfItem {
   // Weight & CBM snapshots
   netWeightSnapshot?: number;
   cbmSnapshot?: number;
+  // HSN/SAC code
+  hsnSacCode?: string;
 }
 
 export interface PdfService {
@@ -55,6 +59,7 @@ export interface PdfQuotation {
   createdAt: string;
   quotationDate?: string;
   deliveryDate?: string;
+  expiryDate?: string;
   notes?: string;
   termsAndConditions?: string;
   subtotal: number;
@@ -64,6 +69,9 @@ export interface PdfQuotation {
   items: PdfItem[];
   services?: PdfService[];
   hideServiceChargesOnPdf?: boolean;
+  // Rate snapshots — frozen at quotation creation time
+  usdExchangeRateSnapshot?: number;
+  ratePerCbmSnapshot?: number;
 }
 
 export interface PdfCompany {
@@ -201,31 +209,27 @@ function calcRowHeight(
   desc: string,
   companyName: string,
   hasImage: boolean,
+  hsnSacCode?: string,
 ): number {
   const detW = C_DET - PAD * 2;
 
   pdf.setFontSize(7.5);
   pdf.setFont('helvetica', 'normal');
 
-  // Company name line
   const cLines = (pdf.splitTextToSize(companyName || '', detW) as string[]).length;
-  // Product name lines
   const nLines = (pdf.splitTextToSize(name || '—', detW) as string[]).length;
-  // Description lines
   const dLines = desc ? (pdf.splitTextToSize(desc, detW) as string[]).length : 0;
+  const hsnH   = hsnSacCode ? LINE_DESC + 1 : 0;
 
-  // Text height
   const textH = PAD
     + cLines * LINE_BODY
     + 1
     + nLines * LINE_BODY
     + (dLines ? 1.5 + dLines * LINE_DESC : 0)
+    + hsnH
     + PAD;
 
-  // Image height — only if image present
   const imgH = hasImage ? IMG_SIZE + PAD * 2 : 0;
-
-  // Min height: if no image and short text → compact row (8mm)
   const minH = hasImage ? 14 : 8;
   return Math.max(textH, imgH, minH);
 }
@@ -233,7 +237,7 @@ function calcRowHeight(
 // ─────────────────────────────────────────────────────────────────────────────
 // Table header — columns adjust when weight/CBM are enabled
 // ─────────────────────────────────────────────────────────────────────────────
-function drawTableHeader(pdf: any, y: number, primary: [number,number,number], company?: PdfCompany): number {
+function drawTableHeader(pdf: any, y: number, primary: [number,number,number]): number {
   sf(pdf, ...primary);
   pdf.rect(ML, y, CW, TH_H, 'F');
 
@@ -256,22 +260,6 @@ function drawTableHeader(pdf: any, y: number, primary: [number,number,number], c
              : c.al === 'center' ? c.x + c.w / 2
              : c.x + PAD;
     pdf.text(c.lbl, tx, y + TH_H - 2, { align: c.al });
-  }
-
-  // If logistics enabled: add a sub-header note under the main header
-  if (company?.showWeightColumn || company?.showCbmColumn) {
-    const noteH = 4.5;
-    sf(pdf, 255, 247, 237);
-    pdf.rect(ML, y + TH_H, CW, noteH, 'F');
-    pdf.setFontSize(5.5);
-    pdf.setFont('helvetica', 'italic');
-    st(pdf, 120, 80, 40);
-    const parts: string[] = [];
-    if (company.showWeightColumn) parts.push('Net Weight');
-    if (company.showCbmColumn)    parts.push('CBM');
-    if (company.showUsdColumn)    parts.push('Freight / USD Price');
-    pdf.text(`Logistics: ${parts.join(', ')} shown per row below`, ML + C_SR + C_IMG + PAD, y + TH_H + 3);
-    return y + TH_H + noteH;
   }
 
   return y + TH_H;
@@ -306,6 +294,7 @@ function drawProductRow(
   qty: number,
   total: number,
   primary: [number,number,number],
+  hsnSacCode?: string,
 ) {
   // White background for ALL rows
   sf(pdf, 255, 255, 255);
@@ -376,6 +365,15 @@ function drawProductRow(
     for (const l of dLines) { pdf.text(l, detX, ty); ty += LINE_DESC; }
   }
 
+  // HSN/SAC code — small tag below description
+  if (hsnSacCode) {
+    ty += 1;
+    pdf.setFontSize(6);
+    pdf.setFont('helvetica', 'normal');
+    st(pdf, 150, 100, 30);
+    pdf.text(`HSN/SAC: ${hsnSacCode}`, detX, ty);
+  }
+
   // MRP
   pdf.setFontSize(7.5);
   pdf.setFont('helvetica', 'normal');
@@ -413,16 +411,19 @@ function drawLogisticsSubRow(
   item: PdfItem,
   company: PdfCompany,
   primary: [number,number,number],
+  snapshotExchRate: number,
+  snapshotRatePerCbm: number,
 ): number {
   const SUB_H = 5.5;
   const netWeight  = Number(item.netWeightSnapshot) || 0;
   const cbm        = Number(item.cbmSnapshot)        || 0;
   const qty        = item.quantity;
-  const exchRate   = Number(company.usdExchangeRate) || 83;
-  const ratePerCbm = Number(company.ratePerCbm)      || 0;
+  const exchRate   = snapshotExchRate;
+  const ratePerCbm = snapshotRatePerCbm;
   const price      = Number(item.unitPrice ?? item.price ?? 0);
   const disc       = Number(item.discountPercentage ?? item.discount ?? 0);
-  const bestPrice  = price * (1 - disc / 100);
+  const flatAmt    = Number(item.discountAmount ?? 0);
+  const bestPrice  = flatAmt > 0 ? price - flatAmt / item.quantity : price * (1 - disc / 100);
 
   // Background tint — very light orange to distinguish from main rows
   sf(pdf, 255, 247, 237);
@@ -530,7 +531,7 @@ async function drawCompactHeader(
   // ── Bill To | QUOTATION title | Quote details — bordered 3-column box ──
   const C1 = 60, C2 = 62, C3 = CW - C1 - C2;
   const secY = y;
-  const secH = 28; // fixed height for the info row
+  const secH = 34; // increased to fit Quote No + Date + Delivery + Valid Till
 
   // Outer border of the 3-column section
   sd(pdf, ...primary);
@@ -596,6 +597,14 @@ async function drawCompactHeader(
     pdf.text(fmtDate(q.deliveryDate), dx + rw, secY + 22, { align: 'right' });
   }
 
+  if (q.expiryDate) {
+    st(pdf, 107, 114, 128);
+    pdf.text('Valid Till:', dx, secY + 29);
+    pdf.setFont('helvetica', 'bold');
+    st(pdf, 17, 24, 39);
+    pdf.text(fmtDate(q.expiryDate), dx + rw, secY + 29, { align: 'right' });
+  }
+
   y = secY + secH + 6;
 
   return y;
@@ -659,6 +668,8 @@ function drawSummaryAndFooter(
   company: PdfCompany,
   qrImg: { data: string; fmt: 'PNG'|'JPEG' } | null,
   primary: [number,number,number],
+  snapshotExchRate: number,
+  snapshotRatePerCbm: number,
 ) {
   const leftW = 78;
   const rightX = ML + leftW + 4;
@@ -799,65 +810,7 @@ function drawSummaryAndFooter(
   for (const l of wl) { pdf.text(l, rightX + 2, wy); wy += 3.5; }
   ry = Math.max(ry + 10, wy + 1);
 
-  // Weight & CBM summary (shown only when company has toggles enabled)
-  const showWeight = company.showWeightColumn;
-  const showCbm    = company.showCbmColumn;
-  const showUsd    = company.showUsdColumn;
-
-  if (showWeight || showCbm || showUsd) {
-    const totalNetWeight = q.items.reduce((sum, it) =>
-      sum + (Number(it.netWeightSnapshot) ?? 0) * it.quantity, 0);
-    const totalCbm = q.items.reduce((sum, it) =>
-      sum + (Number(it.cbmSnapshot) ?? 0) * it.quantity, 0);
-    const exchangeRate = company.usdExchangeRate ?? 83;
-    const ratePerCbm  = company.ratePerCbm ?? 0;
-    const totalFreightUsd = totalCbm * ratePerCbm;
-    const totalFreightInr = totalFreightUsd * exchangeRate;
-    const grandTotalUsd   = grandTotal / exchangeRate;
-
-    // Section header
-    sf(pdf, ...primary);
-    pdf.rect(ML, ly, leftW, 6, 'F');
-    pdf.setFontSize(6.5);
-    pdf.setFont('helvetica', 'bold');
-    st(pdf, 255, 255, 255);
-    pdf.text('LOGISTICS SUMMARY', ML + 2, ly + 4.2);
-    ly += 6;
-
-    sf(pdf, 255, 247, 237);
-    const logRows: [string, string][] = [];
-    if (showWeight && totalNetWeight > 0)
-      logRows.push(['Total Net Weight', `${totalNetWeight.toFixed(3)} kg`]);
-    if (showCbm && totalCbm > 0)
-      logRows.push(['Total CBM', `${totalCbm.toFixed(4)} m3`]);
-    if (showCbm && ratePerCbm > 0)
-      logRows.push(['Rate per CBM', `$ ${ratePerCbm.toFixed(2)} / m3`]);
-    if (showUsd && totalCbm > 0 && ratePerCbm > 0) {
-      logRows.push(['Freight (USD)', `$ ${totalFreightUsd.toFixed(2)}`]);
-      logRows.push(['Exchange Rate', `Rs. ${exchangeRate} / $1`]);
-      logRows.push(['Freight (INR)', `Rs. ${Math.round(totalFreightInr).toLocaleString('en-IN')}`]);
-    }
-    if (showUsd && exchangeRate > 0)
-      logRows.push(['Grand Total (USD)', `$ ${grandTotalUsd.toFixed(2)}`]);
-
-    pdf.rect(ML, ly, leftW, logRows.length * 4.5 + 2, 'F');
-    sd(pdf, 220, 180, 140);
-    pdf.setLineWidth(0.3);
-    pdf.rect(ML, ly - 6, leftW, logRows.length * 4.5 + 2 + 6, 'S');
-
-    let logy = ly + 3.5;
-    for (const [lbl, val] of logRows) {
-      pdf.setFontSize(6.5);
-      pdf.setFont('helvetica', 'bold');
-      st(pdf, 120, 80, 40);
-      pdf.text(lbl, ML + 2, logy);
-      pdf.setFont('helvetica', 'normal');
-      st(pdf, 17, 24, 39);
-      pdf.text(`: ${val}`, ML + 30, logy);
-      logy += 4.5;
-    }
-    ly = logy + 2;
-  }
+  // Logistics summary removed — CBM data is internal only, not shown on customer PDF
 
   const summaryBottom = Math.max(ly, ry) + 4;
 
@@ -890,6 +843,8 @@ export async function generateQuotationPdf(
   qrDataUrl: string,
   filename: string,
 ): Promise<void> {
+  // Always use portrait PDF for all companies
+  // The landscape Excel export is separate (Export as Excel button in Quotation History)
   const { jsPDF } = await import('jspdf');
 
   // ── Theme colours ──────────────────────────────────────────────────────
@@ -904,6 +859,10 @@ export async function generateQuotationPdf(
   );
   const qrImg     = qrDataUrl ? await loadImg(qrDataUrl) : null;
   const compName  = company.companyName || '';
+
+  // ── Snapshot rates — use quotation-time rates, fall back to current company rates ──
+  const snapshotExchRate   = Number(q.usdExchangeRateSnapshot ?? company.usdExchangeRate) || 83;
+  const snapshotRatePerCbm = Number(q.ratePerCbmSnapshot      ?? company.ratePerCbm)      || 0;
 
   // ── Page 1 header ─────────────────────────────────────────────────────
   let y = await drawCompactHeader(pdf, q, company, logoImg, primary);
@@ -921,7 +880,7 @@ export async function generateQuotationPdf(
   // tableTopY tracks the top of the current table block on each page
   // (used to draw L/R borders that span from header to current row)
   let tableTopY = y;
-  y = drawTableHeader(pdf, y, primary, company);
+  y = drawTableHeader(pdf, y, primary);
 
   // Pre-calculate row heights for all items
   pdf.setFontSize(7.5);
@@ -932,7 +891,7 @@ export async function generateQuotationPdf(
   const rowHeights: number[] = q.items.map((item, i) => {
     const name = item.productNameSnapshot || item.productName || '—';
     const desc = item.productDescriptionSnapshot || item.productDescription || item.description || '';
-    return calcRowHeight(pdf, name, desc, compName, !!itemImgs[i]);
+    return calcRowHeight(pdf, name, desc, compName, !!itemImgs[i], item.hsnSacCode);
   });
 
   // Render rows with proper page-break logic
@@ -954,31 +913,33 @@ export async function generateQuotationPdf(
       pdf.addPage();
       y = MT;
       tableTopY = y;
-      y = drawTableHeader(pdf, y, primary, company);
+      y = drawTableHeader(pdf, y, primary);
     }
 
     const name = item.productNameSnapshot || item.productName || '—';
     const desc = item.productDescriptionSnapshot || item.productDescription || item.description || '';
     const price     = Number(item.unitPrice ?? item.price ?? 0);
     const disc      = Number(item.discountPercentage ?? item.discount ?? 0);
+    const flatAmt   = Number(item.discountAmount ?? 0);
     const tax       = Number(item.taxPercentage ?? item.gst ?? 0);
-    const afterDisc = price * item.quantity * (1 - disc/100);
+    const base      = price * item.quantity;
+    const discValue = flatAmt > 0 ? flatAmt : base * disc / 100;
+    const afterDisc = base - discValue;
     const total     = afterDisc * (1 + tax/100);
-    const bestPrice = price * (1 - disc/100);
+    // Best Price per unit after discount
+    const bestPrice = flatAmt > 0 ? price - flatAmt / item.quantity : price * (1 - disc/100);
 
     drawProductRow(
       pdf, y, rowH,
       i + 1, name, desc, compName,
       itemImgs[i], price, bestPrice, item.quantity, total,
       primary,
+      item.hsnSacCode,
     );
 
     y += rowH;
 
-    // Draw logistics sub-row immediately below product row
-    if (itemHasLogistics) {
-      y = drawLogisticsSubRow(pdf, y, item, company, primary);
-    }
+    // CBM sub-rows removed — logistics data stays internal, not shown on PDF
   }
 
   // Close the last table block
@@ -1000,12 +961,10 @@ export async function generateQuotationPdf(
     y += 6;
   }
 
-  drawSummaryAndFooter(pdf, y, q, company, qrImg, primary);
+  drawSummaryAndFooter(pdf, y, q, company, qrImg, primary, snapshotExchRate, snapshotRatePerCbm);
 
   // ── Page numbers ───────────────────────────────────────────────────────
-  const totalPages = (pdf as any).getNumberOfPages
-    ? pdf.getNumberOfPages()
-    : pdf.internal.getNumberOfPages();
+  const totalPages = (pdf as any).internal.getNumberOfPages();
 
   for (let p = 1; p <= totalPages; p++) {
     pdf.setPage(p);
@@ -1013,6 +972,407 @@ export async function generateQuotationPdf(
     pdf.setFont('helvetica', 'normal');
     st(pdf, 156, 163, 175);
     pdf.text(`Page ${p} of ${totalPages}`, PW - MR, PH - 4, { align: 'right' });
+  }
+
+  pdf.save(filename);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EXPORT-MODE PDF — Landscape A4, matching the Excel layout exactly
+//
+// Columns (from Sheet1):
+//   Sr | Model/Name | N.W.(kg) | Unit Price | Discounted Price | QTY | Total(INR) | USD/unit | Total USD | CBM | Total CBM
+//
+// Summary (from Sheet2):
+//   Total INR | GST | Grand Total | Total USD | Total CBM
+//   Shipping Cost USD | Shipping Cost INR | Grand Total USD
+// ─────────────────────────────────────────────────────────────────────────────
+async function generateExportPdf(
+  q: PdfQuotation,
+  company: PdfCompany,
+  filename: string,
+): Promise<void> {
+  const { jsPDF } = await import('jspdf');
+
+  // Landscape A4: 297mm wide × 210mm tall
+  const LW = 297, LH = 210;
+  const LML = 8, LMR = 8, LMT = 8, LMB = 12;
+  const LCW = LW - LML - LMR; // 281mm
+
+  const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const primary = hexToRgb(company.pdfAccentColor || '#1e3a8a');
+
+  // ── Use SNAPSHOT rates (frozen at creation time) with fallback to current company rates ──
+  // Snapshot = rate that was in effect when this quotation was created.
+  // This ensures old quotations always show the correct historical rates.
+  const exchRate   = Number(q.usdExchangeRateSnapshot ?? company.usdExchangeRate) || 83;
+  const ratePerCbm = Number(q.ratePerCbmSnapshot      ?? company.ratePerCbm)      || 0;
+
+  // ── Column widths (must sum to LCW = 281) ────────────────────────────
+  const EC_SR   =  8;  // Sr.
+  const EC_NAME = 65;  // Model No + Name
+  const EC_NW   = 16;  // N.W.(kg)
+  const EC_UP   = 24;  // Unit Price
+  const EC_DP   = 24;  // Discounted Price
+  const EC_QTY  = 10;  // QTY
+  const EC_TOT  = 28;  // Total (INR)
+  const EC_USD  = 20;  // USD/unit
+  const EC_TUSD = 22;  // Total USD
+  const EC_CBM  = 18;  // CBM
+  const EC_TCBM = 20;  // Total CBM
+  const EC_GST  = 26;  // GST Amount  ← new: show per-item GST
+  // sum: 8+65+16+24+24+10+28+20+22+18+20+26 = 281 ✓
+
+  const TH = 7;   // table header height
+  const RH = 7;   // row height
+  const P  = 1.5; // cell padding
+
+  // ── HEADER ────────────────────────────────────────────────────────────
+  let y = LMT;
+
+  // Company name bar
+  sf(pdf, ...primary);
+  pdf.rect(LML, y, LCW, 9, 'F');
+  pdf.setFontSize(11);
+  pdf.setFont('helvetica', 'bold');
+  st(pdf, 255, 255, 255);
+  pdf.text((company.companyName || '').toUpperCase(), LW / 2, y + 6.5, { align: 'center' });
+  y += 9;
+
+  // Contact line
+  pdf.setFontSize(7);
+  pdf.setFont('helvetica', 'normal');
+  st(pdf, 55, 65, 81);
+  const contactParts = [
+    company.address,
+    company.phone && `Ph: ${company.phone}`,
+    company.email && `Email: ${company.email}`,
+    company.gstNumber && `GST: ${company.gstNumber}`,
+  ].filter(Boolean).join('   |   ');
+  if (contactParts) {
+    pdf.text(contactParts, LW / 2, y + 4, { align: 'center' });
+    y += 6;
+  }
+
+  // Quotation info row
+  pdf.setFontSize(7.5);
+  pdf.setFont('helvetica', 'bold');
+  st(pdf, 17, 24, 39);
+  const clientName = q.clientName || q.customerName || '—';
+  const qNo  = q.quotationNumber || `Q-${q.id}`;
+  const qDt  = fmtDate(q.quotationDate || q.createdAt);
+  pdf.text(`For: ${clientName}`, LML, y + 4);
+  pdf.text(`Quotation No: ${qNo}   Date: ${qDt}`, LW - LMR, y + 4, { align: 'right' });
+  y += 7;
+
+  // ── TABLE HEADER ──────────────────────────────────────────────────────
+  const drawExportHeader = (yy: number): number => {
+    sf(pdf, ...primary);
+    pdf.rect(LML, yy, LCW, TH, 'F');
+    pdf.setFontSize(6);
+    pdf.setFont('helvetica', 'bold');
+    st(pdf, 255, 255, 255);
+
+    const cols: { lbl: string; x: number; w: number; al: 'left'|'right'|'center' }[] = [
+      { lbl: 'Sr.',             x: LML,                                                               w: EC_SR,   al: 'center' },
+      { lbl: 'Model / Name',    x: LML+EC_SR,                                                         w: EC_NAME, al: 'left'   },
+      { lbl: 'N.W.(kg)',        x: LML+EC_SR+EC_NAME,                                                 w: EC_NW,   al: 'right'  },
+      { lbl: 'Unit Price',      x: LML+EC_SR+EC_NAME+EC_NW,                                           w: EC_UP,   al: 'right'  },
+      { lbl: 'Disc.Price',      x: LML+EC_SR+EC_NAME+EC_NW+EC_UP,                                     w: EC_DP,   al: 'right'  },
+      { lbl: 'QTY',             x: LML+EC_SR+EC_NAME+EC_NW+EC_UP+EC_DP,                               w: EC_QTY,  al: 'center' },
+      { lbl: 'Total (INR)',     x: LML+EC_SR+EC_NAME+EC_NW+EC_UP+EC_DP+EC_QTY,                        w: EC_TOT,  al: 'right'  },
+      { lbl: 'USD/unit',        x: LML+EC_SR+EC_NAME+EC_NW+EC_UP+EC_DP+EC_QTY+EC_TOT,                w: EC_USD,  al: 'right'  },
+      { lbl: 'Total USD',       x: LML+EC_SR+EC_NAME+EC_NW+EC_UP+EC_DP+EC_QTY+EC_TOT+EC_USD,         w: EC_TUSD, al: 'right'  },
+      { lbl: 'CBM',             x: LML+EC_SR+EC_NAME+EC_NW+EC_UP+EC_DP+EC_QTY+EC_TOT+EC_USD+EC_TUSD, w: EC_CBM,  al: 'right'  },
+      { lbl: 'Total CBM',       x: LML+EC_SR+EC_NAME+EC_NW+EC_UP+EC_DP+EC_QTY+EC_TOT+EC_USD+EC_TUSD+EC_CBM, w: EC_TCBM, al: 'right' },
+      { lbl: 'GST Amt',         x: LML+EC_SR+EC_NAME+EC_NW+EC_UP+EC_DP+EC_QTY+EC_TOT+EC_USD+EC_TUSD+EC_CBM+EC_TCBM, w: EC_GST, al: 'right' },
+    ];
+
+    for (const c of cols) {
+      const tx = c.al === 'right'  ? c.x + c.w - P
+               : c.al === 'center' ? c.x + c.w / 2
+               : c.x + P;
+      pdf.text(c.lbl, tx, yy + TH - 2, { align: c.al });
+    }
+    // draw vertical dividers
+    sd(pdf, 255, 255, 255);
+    pdf.setLineWidth(0.15);
+    let vx = LML + EC_SR;
+    for (const w of [EC_NAME, EC_NW, EC_UP, EC_DP, EC_QTY, EC_TOT, EC_USD, EC_TUSD, EC_CBM, EC_TCBM]) {
+      pdf.line(vx, yy, vx, yy + TH);
+      vx += w;
+    }
+    return yy + TH;
+  };
+
+  y = drawExportHeader(y);
+
+  // ── TABLE ROWS ────────────────────────────────────────────────────────
+  let totINR = 0, totUSD = 0, totCBM = 0, totWeight = 0, totGst = 0;
+
+  for (let i = 0; i < q.items.length; i++) {
+    const item = q.items[i];
+
+    const unitPrice   = Number(item.unitPrice ?? item.price ?? 0);
+    const disc        = Number(item.discountPercentage ?? item.discount ?? 0);
+    const flatAmt     = Number(item.discountAmount ?? 0);
+    const tax         = Number(item.taxPercentage ?? item.gst ?? 0);
+    const discPrice   = flatAmt > 0 ? unitPrice - flatAmt / item.quantity : unitPrice * (1 - disc / 100);
+    const qty         = item.quantity;
+    const totalInr    = discPrice * qty;
+    const gstAmt      = totalInr * tax / 100;
+    const usdPerUnit  = discPrice / exchRate;
+    const totalUsd    = usdPerUnit * qty;
+    const cbm         = Number(item.cbmSnapshot)        || 0;
+    const nw          = Number(item.netWeightSnapshot)  || 0;
+    const totalCbm    = cbm * qty;
+    const totalNw     = nw  * qty;
+    const name        = item.productNameSnapshot || item.productName || '—';
+
+    totINR    += totalInr;
+    totUSD    += totalUsd;
+    totCBM    += totalCbm;
+    totWeight += totalNw;
+    totGst    += gstAmt;
+
+    // Page break check
+    if (y + RH > LH - LMB) {
+      pdf.addPage();
+      y = LMT;
+      y = drawExportHeader(y);
+    }
+
+    // Alternate row background
+    if (i % 2 === 1) {
+      sf(pdf, 249, 250, 251);
+      pdf.rect(LML, y, LCW, RH, 'F');
+    }
+
+    // Row separator
+    sd(pdf, 209, 213, 219);
+    pdf.setLineWidth(0.15);
+    pdf.line(LML, y + RH, LML + LCW, y + RH);
+
+    // Vertical dividers
+    sd(pdf, 226, 232, 240);
+    pdf.setLineWidth(0.1);
+    let vx2 = LML + EC_SR;
+    for (const w of [EC_NAME, EC_NW, EC_UP, EC_DP, EC_QTY, EC_TOT, EC_USD, EC_TUSD, EC_CBM, EC_TCBM]) {
+      pdf.line(vx2, y, vx2, y + RH);
+      vx2 += w;
+    }
+
+    const midY = y + RH / 2 + 1.5;
+    pdf.setFontSize(6.5);
+
+    // Sr
+    pdf.setFont('helvetica', 'bold');
+    st(pdf, 55, 65, 81);
+    pdf.text(String(i + 1), LML + EC_SR / 2, midY, { align: 'center' });
+
+    // Name (2 lines max: first=bold name, second=italic description truncated)
+    const nameY = y + 2.5;
+    pdf.setFont('helvetica', 'bold');
+    st(pdf, 17, 24, 39);
+    const nameLines: string[] = pdf.splitTextToSize(name, EC_NAME - P * 2);
+    pdf.text(nameLines[0], LML + EC_SR + P, nameY);
+    if (nameLines.length > 1 || item.productDescriptionSnapshot) {
+      pdf.setFontSize(5.5);
+      pdf.setFont('helvetica', 'normal');
+      st(pdf, 107, 114, 128);
+      const sub = nameLines[1] || (item.productDescriptionSnapshot || '').slice(0, 40);
+      if (sub) pdf.text(sub, LML + EC_SR + P, nameY + 3);
+    }
+
+    // N.W.
+    pdf.setFontSize(6.5);
+    pdf.setFont('helvetica', 'normal');
+    st(pdf, 55, 65, 81);
+    pdf.text(nw > 0 ? nw.toFixed(1) : '—',
+      LML + EC_SR + EC_NAME + EC_NW - P, midY, { align: 'right' });
+
+    // Unit Price
+    st(pdf, 107, 114, 128);
+    pdf.text(new Intl.NumberFormat('en-IN').format(Math.round(unitPrice)),
+      LML + EC_SR + EC_NAME + EC_NW + EC_UP - P, midY, { align: 'right' });
+
+    // Discounted Price
+    pdf.setFont('helvetica', 'bold');
+    st(pdf, 17, 24, 39);
+    pdf.text(new Intl.NumberFormat('en-IN').format(Math.round(discPrice)),
+      LML + EC_SR + EC_NAME + EC_NW + EC_UP + EC_DP - P, midY, { align: 'right' });
+
+    // QTY
+    pdf.setFont('helvetica', 'bold');
+    st(pdf, 17, 24, 39);
+    pdf.text(String(qty),
+      LML + EC_SR + EC_NAME + EC_NW + EC_UP + EC_DP + EC_QTY / 2, midY, { align: 'center' });
+
+    // Total INR
+    pdf.setFont('helvetica', 'bold');
+    st(pdf, ...primary);
+    pdf.text(new Intl.NumberFormat('en-IN').format(Math.round(totalInr)),
+      LML + EC_SR + EC_NAME + EC_NW + EC_UP + EC_DP + EC_QTY + EC_TOT - P, midY, { align: 'right' });
+
+    // USD/unit
+    pdf.setFont('helvetica', 'normal');
+    st(pdf, 55, 65, 81);
+    pdf.text(`$${usdPerUnit.toFixed(0)}`,
+      LML + EC_SR + EC_NAME + EC_NW + EC_UP + EC_DP + EC_QTY + EC_TOT + EC_USD - P, midY, { align: 'right' });
+
+    // Total USD
+    pdf.setFont('helvetica', 'bold');
+    st(pdf, 17, 24, 39);
+    pdf.text(`$${Math.round(totalUsd)}`,
+      LML + EC_SR + EC_NAME + EC_NW + EC_UP + EC_DP + EC_QTY + EC_TOT + EC_USD + EC_TUSD - P, midY, { align: 'right' });
+
+    // CBM
+    pdf.setFont('helvetica', 'normal');
+    st(pdf, 55, 65, 81);
+    pdf.text(cbm > 0 ? cbm.toFixed(2) : '—',
+      LML + EC_SR + EC_NAME + EC_NW + EC_UP + EC_DP + EC_QTY + EC_TOT + EC_USD + EC_TUSD + EC_CBM - P, midY, { align: 'right' });
+
+    // Total CBM
+    pdf.setFont('helvetica', 'bold');
+    st(pdf, 17, 24, 39);
+    pdf.text(totalCbm > 0 ? totalCbm.toFixed(2) : '—',
+      LML + EC_SR + EC_NAME + EC_NW + EC_UP + EC_DP + EC_QTY + EC_TOT + EC_USD + EC_TUSD + EC_CBM + EC_TCBM - P, midY, { align: 'right' });
+
+    // GST Amount
+    pdf.setFont('helvetica', 'normal');
+    st(pdf, 107, 114, 128);
+    pdf.text(new Intl.NumberFormat('en-IN').format(Math.round(gstAmt)),
+      LML + EC_SR + EC_NAME + EC_NW + EC_UP + EC_DP + EC_QTY + EC_TOT + EC_USD + EC_TUSD + EC_CBM + EC_TCBM + EC_GST - P, midY, { align: 'right' });
+
+    y += RH;
+  }
+
+  // ── TOTALS ROW ────────────────────────────────────────────────────────
+  if (y + RH > LH - LMB) { pdf.addPage(); y = LMT; }
+  sf(pdf, ...primary);
+  pdf.rect(LML, y, LCW, RH + 1, 'F');
+  pdf.setFontSize(7);
+  pdf.setFont('helvetica', 'bold');
+  st(pdf, 255, 255, 255);
+  const totMidY = y + (RH + 1) / 2 + 1.5;
+  pdf.text('TOTAL', LML + EC_SR + P, totMidY);
+  pdf.text(new Intl.NumberFormat('en-IN').format(Math.round(totINR)),
+    LML + EC_SR + EC_NAME + EC_NW + EC_UP + EC_DP + EC_QTY + EC_TOT - P, totMidY, { align: 'right' });
+  pdf.text(`$${Math.round(totUSD)}`,
+    LML + EC_SR + EC_NAME + EC_NW + EC_UP + EC_DP + EC_QTY + EC_TOT + EC_USD + EC_TUSD - P, totMidY, { align: 'right' });
+  pdf.text(totCBM.toFixed(2),
+    LML + EC_SR + EC_NAME + EC_NW + EC_UP + EC_DP + EC_QTY + EC_TOT + EC_USD + EC_TUSD + EC_CBM + EC_TCBM - P, totMidY, { align: 'right' });
+  pdf.text(new Intl.NumberFormat('en-IN').format(Math.round(totGst)),
+    LML + EC_SR + EC_NAME + EC_NW + EC_UP + EC_DP + EC_QTY + EC_TOT + EC_USD + EC_TUSD + EC_CBM + EC_TCBM + EC_GST - P, totMidY, { align: 'right' });
+  y += RH + 1;
+
+  // ── SUMMARY SECTION (Sheet2 calculations) ─────────────────────────────
+  if (y + 55 > LH - LMB) { pdf.addPage(); y = LMT; }
+  y += 4;
+
+  const gstTotal          = totINR * 0.18;  // 18% GST on INR subtotal
+  const grandTotalInr     = totINR + gstTotal;
+  const shippingUsd       = totCBM * ratePerCbm;
+  const shippingInr       = shippingUsd * exchRate;
+  const equipmentCostInr  = totUSD * exchRate;
+  const grandTotalUsd     = grandTotalInr / exchRate;
+
+  // Left column: INR summary
+  const sumLX = LML;
+  const sumRX = LML + LCW / 2 + 5;
+  const sumW  = LCW / 2 - 5;
+
+  // ── Left: INR totals ──
+  const inrRows: [string, string, boolean][] = [
+    ['Sub Total (INR)',   new Intl.NumberFormat('en-IN', {style:'currency',currency:'INR',maximumFractionDigits:0}).format(Math.round(totINR)),      false],
+    ['GST 18% (INR)',     new Intl.NumberFormat('en-IN', {style:'currency',currency:'INR',maximumFractionDigits:0}).format(Math.round(gstTotal)),    false],
+    ['Grand Total (INR)', new Intl.NumberFormat('en-IN', {style:'currency',currency:'INR',maximumFractionDigits:0}).format(Math.round(grandTotalInr)), true],
+  ];
+
+  sf(pdf, ...primary);
+  pdf.rect(sumLX, y, sumW, 6, 'F');
+  pdf.setFontSize(6.5);
+  pdf.setFont('helvetica', 'bold');
+  st(pdf, 255, 255, 255);
+  pdf.text('INVOICE SUMMARY', sumLX + 2, y + 4.2);
+  y += 6;
+
+  let sy = y;
+  for (const [lbl, val, bold] of inrRows) {
+    sf(pdf, bold ? 239 : 249, bold ? 246 : 250, bold ? 255 : 251);
+    pdf.rect(sumLX, sy, sumW, 6, 'F');
+    pdf.setFontSize(bold ? 7 : 6.5);
+    pdf.setFont('helvetica', bold ? 'bold' : 'normal');
+    st(pdf, 17, 24, 39);
+    pdf.text(lbl, sumLX + 2, sy + 4.2);
+    pdf.text(val, sumLX + sumW - 2, sy + 4.2, { align: 'right' });
+    sy += 6;
+  }
+
+  // ── Right: Logistics & Freight summary ──
+  let ry2 = y - 6; // align with the header bar
+  sf(pdf, ...primary);
+  pdf.rect(sumRX, ry2, sumW, 6, 'F');
+  pdf.setFontSize(6.5);
+  pdf.setFont('helvetica', 'bold');
+  st(pdf, 255, 255, 255);
+  pdf.text('EXPORT & FREIGHT SUMMARY', sumRX + 2, ry2 + 4.2);
+  ry2 += 6;
+
+  const freightRows: [string, string, boolean][] = [
+    ['Total CBM',              `${totCBM.toFixed(4)} m\u00B3`,                                                false],
+    ['Total Net Weight',       `${totWeight.toFixed(3)} kg`,                                                  false],
+    ['Rate per CBM',           `$${ratePerCbm.toFixed(2)} / m\u00B3`,                                        false],
+    ['Freight Cost (USD)',     `$${shippingUsd.toFixed(2)}`,                                                  false],
+    ['Exchange Rate',          `\u20B9${exchRate} / $1`,                                                      false],
+    ['Freight Cost (INR)',     `\u20B9${new Intl.NumberFormat('en-IN').format(Math.round(shippingInr))}`,     false],
+    ['Equipment Cost (INR)',   `\u20B9${new Intl.NumberFormat('en-IN').format(Math.round(equipmentCostInr))}`,false],
+    ['Grand Total (USD)',      `$${grandTotalUsd.toFixed(2)}`,                                                true],
+  ];
+
+  for (const [lbl, val, bold] of freightRows) {
+    sf(pdf, bold ? 255 : 249, bold ? 247 : 250, bold ? 237 : 251);
+    pdf.rect(sumRX, ry2, sumW, 6, 'F');
+    pdf.setFontSize(bold ? 7 : 6.5);
+    pdf.setFont('helvetica', bold ? 'bold' : 'normal');
+    st(pdf, bold ? 120 : 17, bold ? 80 : 24, bold ? 40 : 39);
+    pdf.text(lbl, sumRX + 2, ry2 + 4.2);
+    pdf.text(val, sumRX + sumW - 2, ry2 + 4.2, { align: 'right' });
+    ry2 += 6;
+  }
+
+  // ── REMARKS (from terms) ──────────────────────────────────────────────
+  const maxY = Math.max(sy, ry2) + 4;
+  const terms = q.termsAndConditions;
+  if (terms && maxY + 20 < LH - LMB) {
+    pdf.setFontSize(6.5);
+    pdf.setFont('helvetica', 'bold');
+    st(pdf, 17, 24, 39);
+    pdf.text('REMARKS / TERMS & CONDITIONS:', LML, maxY + 4);
+    pdf.setFont('helvetica', 'normal');
+    st(pdf, 55, 65, 81);
+    const tLines: string[] = pdf.splitTextToSize(terms, LCW);
+    let ty2 = maxY + 8;
+    for (const l of tLines.slice(0, 6)) { pdf.text(l, LML, ty2); ty2 += 3.5; }
+  }
+
+  // ── FOOTER ─────────────────────────────────────────────────────────────
+  const footerY = LH - LMB + 2;
+  sf(pdf, ...primary);
+  pdf.rect(LML, footerY, LCW, 8, 'F');
+  pdf.setFontSize(7);
+  pdf.setFont('helvetica', 'bold');
+  st(pdf, 255, 255, 255);
+  pdf.text('Thank you for your business!', LW / 2, footerY + 5, { align: 'center' });
+
+  // Page numbers
+  const totalPages2 = (pdf as any).internal.getNumberOfPages();
+  for (let p = 1; p <= totalPages2; p++) {
+    pdf.setPage(p);
+    pdf.setFontSize(6);
+    pdf.setFont('helvetica', 'normal');
+    st(pdf, 156, 163, 175);
+    pdf.text(`Page ${p} / ${totalPages2}`, LW - LMR, LH - 3, { align: 'right' });
   }
 
   pdf.save(filename);

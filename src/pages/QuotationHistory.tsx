@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+﻿import React, { useState, useEffect, useRef } from 'react';
 import { TopBar } from '@/components/layout/TopBar';
 import { useAuth } from '@/contexts/AuthContext';
 import { useQuotations } from '@/contexts/QuotationContext';
@@ -86,6 +86,17 @@ const QuotationHistory = () => {
    * so we always need to call GET /api/quotations/{id} before showing the modal.
    */
   const [viewLoading, setViewLoading] = useState(false);
+  const [cbmExcelCompany, setCbmExcelCompany] = useState<any>(null);
+
+  // Load company settings once for CBM Excel button visibility
+  React.useEffect(() => {
+    if (!user) return;
+    import('@/services/companyService').then(({ companyService }) => {
+      companyService.getMyCompany()
+        .then((c) => { if (c.cbmAdvancedMode) setCbmExcelCompany(c); })
+        .catch(() => {});
+    });
+  }, [user]);
   const handleView = async (q: any) => {
     setViewingQuotation(q); // open modal immediately with summary
     setViewLoading(true);
@@ -99,10 +110,10 @@ const QuotationHistory = () => {
         // productNameSnapshot = name at time of quoting (may be corrupted in old records)
         // QuotationPrintView reads productNameSnapshot first, then productName
         // So we set productNameSnapshot to the best available name
-        productName: item.productName || item.productNameSnapshot || '—',
+        productName: item.productName || item.productNameSnapshot || 'â€”',
         productNameSnapshot: item.productNameSnapshot && item.productNameSnapshot !== item.productName
           ? item.productNameSnapshot  // keep snapshot if it differs (genuine historical data)
-          : item.productName || item.productNameSnapshot || '—', // prefer current name
+          : item.productName || item.productNameSnapshot || 'â€”', // prefer current name
         productDescription: item.productDescriptionSnapshot || item.productDescription || '',
         // For image: try snapshot first, then current product image
         imagePathSnapshot: item.imagePathSnapshot || item.imagePath || '',
@@ -113,12 +124,18 @@ const QuotationHistory = () => {
         discountPercentage: Number(item.discountPercentage ?? 0),
         taxPercentage: Number(item.taxPercentage ?? 0),
         itemTotal: Number(item.itemTotal ?? 0),
+        hsnSacCode: item.hsnSacCode || '',
       }));
       setViewingQuotation({
         ...d,
         grandTotal: d.totalAmount ?? d.grandTotal ?? 0,
         clientName: d.customerName || d.clientName || '',
         items,
+        // Preserve snapshot rates so PDF always shows historical rates
+        usdExchangeRateSnapshot: d.usdExchangeRateSnapshot,
+        ratePerCbmSnapshot: d.ratePerCbmSnapshot,
+        // Preserve expiry date for Valid Till in PDF
+        expiryDate: d.expiryDate,
       });
     } catch {
       // keep summary already shown
@@ -128,7 +145,7 @@ const QuotationHistory = () => {
   };
 
   // Client-side filter applied on the current page of server-returned records
-  // (search, date range — these filter the already-loaded page)
+  // (search, date range â€” these filter the already-loaded page)
   const filteredQuotations = userQuotations.filter((q: any) => {
     if (searchTerm) {
       const t = searchTerm.toLowerCase();
@@ -231,7 +248,7 @@ const QuotationHistory = () => {
     }
   };
 
-  // Download PDF — uses pure jsPDF programmatic renderer (no html2canvas).
+  // Download PDF â€” uses pure jsPDF programmatic renderer (no html2canvas).
   // Delivers enterprise-grade output: repeated headers, complete borders,
   // proper row-level page breaks, no content clipping.
   const downloadPDF = async (quotation?: any) => {
@@ -242,10 +259,10 @@ const QuotationHistory = () => {
       setDownloading(true);
 
       // If called from the row button and the modal is NOT open,
-      // open the view modal first — load full detail including images
+      // open the view modal first â€” load full detail including images
       if (quotation && (!viewingQuotation || viewingQuotation.id !== quotation.id)) {
         handleView(quotation);
-        toast.info('Opening view — click "Download PDF" to generate');
+        toast.info('Opening view â€” click "Download PDF" to generate');
         setDownloading(false);
         return;
       }
@@ -301,6 +318,170 @@ const QuotationHistory = () => {
     }
   };
 
+  // Download CBM Excel (3-sheet) â€” values in Master, formulas in Sheet2
+  const downloadCbmExcel = async () => {
+    if (!viewingQuotation || !cbmExcelCompany) return;
+    try {
+      const XLSX = await import('xlsx');
+      const q  = viewingQuotation;
+      const co = cbmExcelCompany;
+
+      const exchRate    = Number(q.usdExchangeRateSnapshot ?? co.usdExchangeRate) || 83;
+      const ratePerCbm  = Number(q.ratePerCbmSnapshot      ?? co.ratePerCbm)      || 0;
+      const clearPerCbm = Number(co.clearancePerCbm) || 1667;
+      const allServices = (q.services || []) as any[];
+      const installCost = allServices
+        .filter((s: any) => /install/i.test(s.serviceName || ''))
+        .reduce((sum: number, s: any) => {
+          const p = Number(s.servicePrice) || 0;
+          const t = Number(s.serviceTax) || 0;
+          return sum + p + p * t / 100;
+        }, 0);
+
+      const wb = XLSX.utils.book_new();
+      const compName = co.companyName || '';
+      const qNo      = q.quotationNumber || String(q.id);
+      const qDate    = q.quotationDate || q.createdAt || '';
+      const discPct  = (q.items as any[]).length > 0
+        ? Number((q.items as any[])[0].discountPercentage ?? 0) / 100 : 0;
+
+      // â”€â”€ SHEET 1: Master Feb22 â€” all calculated values (no cross-sheet formulas) â”€â”€
+      const s1: any[][] = [];
+      s1.push(['', compName]);                                        // row 1
+      s1.push(['', co.address || '']);                                // row 2
+      s1.push(['', `Website: ${co.email || ''}`]);                   // row 3
+      s1.push(['', `Phone/WhatsApp: ${co.phone || ''}`]);            // row 4
+      s1.push(['', `GST - ${co.gstNumber || ''}`]);                  // row 5
+      s1.push(['Series:', '', 'Luxury', '', 'Invoice No:', '', '', '', '', qNo]); // row 6
+      s1.push(['For: ', '', q.clientName || q.customerName || '', '', 'Date:', '', '', '', '', qDate, '', 'Discount', discPct]); // row 7
+      s1.push(['No.', 'Model No', 'Name', 'Picture', 'N.W.(kg)', 'Stack Weight(kg)', 'Unit Price', 'Discounted Price', 'QTY', 'Total', 'USD', 'QTY', 'Total USD', 'CBM', 'Total CBM']); // row 8
+
+      let totINR = 0, totUSD = 0, totCBM = 0;
+      (q.items as any[]).forEach((item: any, idx: number) => {
+        const unitP  = Number(item.unitPrice ?? 0);
+        const disc   = Number(item.discountPercentage ?? 0);
+        const qty    = Number(item.quantity ?? 1);
+        const discP  = unitP * (1 - disc / 100);
+        const total  = discP * qty;
+        const usd    = Number((discP / exchRate).toFixed(0));
+        const totU   = usd * qty;
+        const cbm    = Number(item.cbmSnapshot ?? 0);
+        const totC   = Number((cbm * qty).toFixed(4));
+        const nw     = Number(item.netWeightSnapshot ?? 0);
+        totINR += total; totUSD += totU; totCBM += totC;
+        s1.push([
+          idx + 1, item.productCode || '',
+          item.productNameSnapshot || item.productName || '',
+          '', nw || 'N/A', '',
+          unitP, discP, qty, total,
+          usd, qty, totU,
+          cbm || '', totC || '',
+        ]);
+      });
+
+      const gst18   = totINR * 0.18;  // selling GST (matches Bill Details B3)
+      const grandT  = totINR + gst18;
+      const totQty  = (q.items as any[]).reduce((s: number, i: any) => s + Number(i.quantity ?? 1), 0);
+      s1.push(['', '', '', '', '', '', '', '', '', '', '', '', '', '', '']); // blank
+      s1.push(['', '', 'Total', '', '', '', '', '', totQty, totINR, '', totQty, totUSD, '', totCBM]);
+      s1.push(['', '', 'GST 18%', '', '', '', '', '', '', gst18]);
+      s1.push(['', '', 'Grand Total', '', '', '', '', '', '', grandT]);
+      s1.push([]);
+      s1.push(['', '', 'REMARKS:']);
+      const terms = (q.termsAndConditions || '').split('\n').filter((l: string) => l.trim());
+      terms.forEach((line: string, i: number) => s1.push(['', '', `${i + 1}. ${line.trim()}`]));
+      s1.push(['', '', `Quotation: ${qNo}  |  Date: ${qDate}  |  Valid Till: ${q.expiryDate || 'N/A'}`]);
+
+      const ws1 = XLSX.utils.aoa_to_sheet(s1);
+      ws1['!cols'] = [
+        {wch:5},{wch:10},{wch:28},{wch:8},{wch:8},{wch:12},
+        {wch:12},{wch:14},{wch:5},{wch:12},{wch:8},{wch:5},{wch:12},{wch:7},{wch:10},
+      ];
+      XLSX.utils.book_append_sheet(wb, ws1, 'Master Feb22');
+
+      // â”€â”€ SHEET 2: Cost Analysis â€” values + formulas for user to change rates â”€â”€
+      // Put named values in G column so formulas are live:
+      //   G7 = Rate/CBM (user can change)
+      //   G8 = Exchange Rate (user can change)
+      //   G9 = Total CBM (linked to value)
+      //   B2 = Total INR (value)
+      // Then H column uses G column references â€” fully recalculates when user changes G7/G8
+
+      const equipCost = await (async () => {
+        // Try to load products to get purchase prices (same logic as NewQuotation panel)
+        try {
+          const { productService } = await import('@/services/productService');
+          const prods = await productService.getAll();
+          return (q.items as any[]).reduce((sum: number, item: any) => {
+            const prod = prods.find((p) => p.id === item.productId);
+            const pp = Number(prod?.purchasePrice ?? 0);
+            const disc = Number(item.discountPercentage ?? 0);
+            const costPerUnit = pp > 0 ? pp : Number(item.unitPrice ?? 0) * (1 - disc / 100);
+            return sum + costPerUnit * Number(item.quantity ?? 1);
+          }, 0);
+        } catch {
+          // Fallback to discounted selling price
+          return totUSD * exchRate;
+        }
+      })();
+      const freightUsd  = totCBM * ratePerCbm;
+      const freightInr  = freightUsd * exchRate;
+      const totalCost   = equipCost + freightInr;
+      const gstCost     = gst18;  // selling GST (same as B3 in Sheet2)
+      const clearCost   = totCBM * clearPerCbm;
+      // installCost = Today Cost (K9) = service-based installation + shipping
+      const grandCost   = totalCost + gstCost + clearCost + installCost;
+      const profit      = grandT - grandCost;
+      const profitPct   = grandT > 0 ? (profit / grandT) * 100 : 0;
+      const instPerCbm  = totCBM > 0 ? Math.round(installCost / totCBM) : 1167;
+
+      const s2: any[][] = [
+        ['Bill details', '', '', '', '', '', '', '', '', '', ''],
+        ['Total',       totINR,  '', '', '', '', '', '', '', '', ''],
+        ['GST 18%',     { f: 'B2*0.18' }, '', '', '', '', '', '', '', '', ''],
+        ['Grand Total', { f: 'B2+B3' },   '', '', '', '', '', '', '', '', ''],
+        [],
+        ['', '', '', 'total USD', totUSD, 'total CBM', totCBM, '', '', '', ''],
+        ['', '', '', '', '', '', ratePerCbm, 'Rate/CBM', '', '', ''],
+        ['', '', '', '', '', '', exchRate,   equipCost,          'Equipment Cost', '', ''],
+        ['', '', '', '', '', '', freightUsd, { f: 'G9*G8' }, 'Shipping Cost',  'Today Cost', installCost],
+        ['', '', '', '', '', '', '',          { f: 'H8+H9' }, 'Total', 'Cost/CBM', ratePerCbm],
+        ['', '', '', '', '', '', '',          { f: 'B3' },           'GST (selling)', 'Installation per CBM', instPerCbm],
+        ['', '', '', '', '', '', '',          { f: `G6*${clearPerCbm}` }, 'Clearance', 'Clearance per cbm', clearPerCbm],
+        ['', '', '', '', '', '', '',          '',           'Transportation', '', ''],
+        ['', '', '', '', '', '', '',          installCost,  'Installation', '', ''],
+        ['', '', '', '', '', '', '',          { f: 'H10+H11+H12+H14+K9' }, 'Total', '', ''],
+        ['', '', '', '', '', 'PRFT', '',      { f: 'B4-H15' }, '', '', ''],
+        ['', '', '', '', '', '%',    '',      { f: 'H16/B4*100' }, '', '', ''],
+      ];
+      // Fix G9 â€” shipping cost USD = total CBM Ã— rate (so formula G9*G8 gives shipping INR)
+      s2[8][6] = { f: 'G6*G7' }; // G9 = total CBM Ã— rate/CBM = freight USD
+
+      const ws2 = XLSX.utils.aoa_to_sheet(s2);
+      ws2['!cols'] = [
+        {wch:14},{wch:12},{wch:4},{wch:12},{wch:10},
+        {wch:10},{wch:10},{wch:12},{wch:16},{wch:20},{wch:8},
+      ];
+      XLSX.utils.book_append_sheet(wb, ws2, 'Sheet2');
+
+      // â”€â”€ SHEET 3: Series/Discount lookup â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      const s3: any[][] = [
+        ['Series:', 'Discount'],
+        ['M05', 0.00], ['FW', 0.01], ['HAM', 0.02], ['T8', 0.03],
+        ['CARD', 0.04], ['M8F', 0.05], ['SN', 0.06],
+      ];
+      for (let i = 7; i <= 46; i++) s3.push(['', Number((i / 100).toFixed(2))]);
+      const ws3 = XLSX.utils.aoa_to_sheet(s3);
+      ws3['!cols'] = [{wch:10},{wch:10}];
+      XLSX.utils.book_append_sheet(wb, ws3, 'Sheet3');
+
+      XLSX.writeFile(wb, `quotation-cbm-${qNo}.xlsx`);
+      toast.success('CBM Excel downloaded');
+    } catch (err) {
+      console.error('CBM Excel failed:', err);
+      toast.error('Failed to generate CBM Excel');
+    }
+  };
   return (
     <div className="min-h-screen">
       <TopBar title="Quotation record" />
@@ -334,8 +515,8 @@ const QuotationHistory = () => {
             <div className="flex-1">
               <h4 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-1">Quotation Workflow Guide</h4>
               <div className="text-xs text-blue-800 dark:text-blue-200 space-y-1">
-                <p><strong>DRAFT:</strong> Click <strong>Edit Items</strong> (✏️ blue icon) to modify items/prices</p>
-                <p><strong>GENERATED/SENT/APPROVED:</strong> Cannot edit items (maintains audit trail). Use <strong>Duplicate & Edit</strong> (📋 icon) to create a revision</p>
+                <p><strong>DRAFT:</strong> Click <strong>Edit Items</strong> (âœï¸ blue icon) to modify items/prices</p>
+                <p><strong>GENERATED/SENT/APPROVED:</strong> Cannot edit items (maintains audit trail). Use <strong>Duplicate & Edit</strong> (ðŸ“‹ icon) to create a revision</p>
                 <p><strong>Duplicate & Edit:</strong> Creates a new quotation with a new number, preserving the original for records</p>
               </div>
             </div>
@@ -345,7 +526,7 @@ const QuotationHistory = () => {
         {/* Table */}
         <div className="bg-card rounded-xl shadow-md border border-border overflow-hidden">
           {(quotationsLoading || (!authLoading && isAuthenticated && quotations.length === 0 && !searchTerm && !fromDate && !toDate)) ? (
-            /* ── Skeleton rows for the quotation list table ── */
+            /* â”€â”€ Skeleton rows for the quotation list table â”€â”€ */
             <div className="animate-pulse">
               <table className="w-full">
                 <thead>
@@ -472,6 +653,16 @@ const QuotationHistory = () => {
                 <p className="text-sm text-gray-500">{viewingQuotation.clientName || viewingQuotation.customerName}</p>
               </div>
               <div className="flex items-center gap-2">
+                {cbmExcelCompany && viewingQuotation && !viewLoading && (
+                  <button
+                    onClick={downloadCbmExcel}
+                    className="flex items-center gap-2 px-3 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors text-sm font-medium"
+                    title="Download 3-sheet CBM Excel (Quotation + Cost Analysis + Rates)"
+                  >
+                    <Download size={15} />
+                    Export Excel (CBM)
+                  </button>
+                )}
                 <button
                   onClick={() => downloadPDF()}
                   disabled={downloading || viewLoading}
@@ -487,7 +678,7 @@ const QuotationHistory = () => {
             </div>
             <div className="overflow-y-auto flex-1 bg-gray-100 p-4">
               {viewLoading ? (
-                /* ── Skeleton loader mimicking the quotation PDF layout ── */
+                /* â”€â”€ Skeleton loader mimicking the quotation PDF layout â”€â”€ */
                 <div className="mx-auto bg-white rounded shadow-lg p-6 space-y-5 animate-pulse">
                   {/* Company header */}
                   <div className="flex items-start justify-between">

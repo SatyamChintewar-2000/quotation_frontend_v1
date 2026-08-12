@@ -16,6 +16,8 @@ interface QuotationItem {
   quantity: number;
   discountPercentage?: number;
   discount?: number;
+  /** Flat rupee discount amount — when > 0, shown in PDF instead of %-derived price */
+  discountAmount?: number;
   taxPercentage?: number;
   gst?: number;
   itemTotal?: number;
@@ -399,11 +401,15 @@ const QuotationPrintView = React.forwardRef<HTMLDivElement, Props>(({ quotation,
               {quotation.items.map((item, idx) => {
                 const price     = Number(item.unitPrice ?? item.price ?? 0);
                 const disc      = Number(item.discountPercentage ?? item.discount ?? 0);
+                const flatAmt   = Number(item.discountAmount ?? 0);
                 const tax       = Number(item.taxPercentage ?? item.gst ?? 0);
                 const base      = price * item.quantity;
-                const afterDisc = base - base * disc / 100;
+                // When a flat amount was saved, use it directly; otherwise derive from %
+                const discValue = flatAmt > 0 ? flatAmt : base * disc / 100;
+                const afterDisc = base - discValue;
                 const total     = afterDisc + afterDisc * tax / 100;
-                const bestPrice = price - price * disc / 100;
+                // Best Price (per unit after discount)
+                const bestPrice = flatAmt > 0 ? price - flatAmt / item.quantity : price - price * disc / 100;
                 const imgSrc    = resolvedImages[idx] ?? '';
                 const name      = item.productNameSnapshot || item.productName || '—';
                 const desc      = item.productDescriptionSnapshot || item.productDescription || item.description || '';
@@ -668,67 +674,7 @@ const QuotationPrintView = React.forwardRef<HTMLDivElement, Props>(({ quotation,
                       </td>
                     </tr>
 
-                    {/* Logistics Summary — shown only when company has toggles enabled */}
-                    {(company?.showWeightColumn || company?.showCbmColumn) && (() => {
-                      const totalNetWeight = quotation.items.reduce((sum, it) =>
-                        sum + (Number(it.netWeightSnapshot) || 0) * it.quantity, 0);
-                      const totalCbm = quotation.items.reduce((sum, it) =>
-                        sum + (Number(it.cbmSnapshot) || 0) * it.quantity, 0);
-                      const exchangeRate = Number(company?.usdExchangeRate) || 83;
-                      const ratePerCbm  = Number(company?.ratePerCbm)      || 0;
-                      const showUsd = company?.showUsdColumn && company?.showCbmColumn && ratePerCbm > 0 && totalCbm > 0;
-                      const freightUsd = totalCbm * ratePerCbm;
-
-                      if (!totalNetWeight && !totalCbm) return null;
-
-                      return (
-                        <>
-                          <tr style={{ background: '#fff7ed', borderTop: `2px solid #fb923c` }}>
-                            <td colSpan={3} style={{ padding: '6px 14px' }}>
-                              <span style={{ fontSize: '9px', fontWeight: '800', color: '#c2410c', textTransform: 'uppercase', letterSpacing: '1px' }}>
-                                Logistics Summary
-                              </span>
-                            </td>
-                          </tr>
-                          {company?.showWeightColumn && totalNetWeight > 0 && (
-                            <tr style={{ borderBottom: `1px solid ${BORDER_COLOR}`, background: '#fff7ed' }}>
-                              <td style={{ padding: '6px 14px', color: TEXT_GRAY, fontWeight: '600', fontSize: '11px' }}>Total Net Weight</td>
-                              <td style={{ padding: '6px 8px', textAlign: 'center', color: TEXT_GRAY, width: '20px' }}>:</td>
-                              <td style={{ padding: '6px 14px', textAlign: 'right', fontWeight: '700', color: TEXT_DARK, fontSize: '11px' }}>
-                                {totalNetWeight.toFixed(3)} kg
-                              </td>
-                            </tr>
-                          )}
-                          {company?.showCbmColumn && totalCbm > 0 && (
-                            <tr style={{ borderBottom: `1px solid ${BORDER_COLOR}`, background: '#fff7ed' }}>
-                              <td style={{ padding: '6px 14px', color: TEXT_GRAY, fontWeight: '600', fontSize: '11px' }}>Total CBM</td>
-                              <td style={{ padding: '6px 8px', textAlign: 'center', color: TEXT_GRAY, width: '20px' }}>:</td>
-                              <td style={{ padding: '6px 14px', textAlign: 'right', fontWeight: '700', color: TEXT_DARK, fontSize: '11px' }}>
-                                {totalCbm.toFixed(4)} m³
-                              </td>
-                            </tr>
-                          )}
-                          {showUsd && (
-                            <>
-                              <tr style={{ borderBottom: `1px solid ${BORDER_COLOR}`, background: '#fff7ed' }}>
-                                <td style={{ padding: '6px 14px', color: TEXT_GRAY, fontWeight: '600', fontSize: '11px' }}>Freight (USD)</td>
-                                <td style={{ padding: '6px 8px', textAlign: 'center', color: TEXT_GRAY, width: '20px' }}>:</td>
-                                <td style={{ padding: '6px 14px', textAlign: 'right', fontWeight: '700', color: TEXT_DARK, fontSize: '11px' }}>
-                                  $ {freightUsd.toFixed(2)}
-                                </td>
-                              </tr>
-                              <tr style={{ borderBottom: `1px solid ${BORDER_COLOR}`, background: '#fff7ed' }}>
-                                <td style={{ padding: '6px 14px', color: TEXT_GRAY, fontWeight: '600', fontSize: '11px' }}>Freight (INR)</td>
-                                <td style={{ padding: '6px 8px', textAlign: 'center', color: TEXT_GRAY, width: '20px' }}>:</td>
-                                <td style={{ padding: '6px 14px', textAlign: 'right', fontWeight: '700', color: TEXT_DARK, fontSize: '11px' }}>
-                                  {fmtINR(freightUsd * exchangeRate)}
-                                </td>
-                              </tr>
-                            </>
-                          )}
-                        </>
-                      );
-                    })()}
+                    {/* Logistics Summary removed — CBM data is internal only */}
                   </tbody>
                 </table>
               </td>

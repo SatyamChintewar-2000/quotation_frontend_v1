@@ -119,6 +119,8 @@ const MasterSettings: React.FC = () => {
     // Feature V28: Export / Logistics columns
     showWeightColumn: false, showCbmColumn: false, showUsdColumn: false,
     ratePerCbm: 0, usdExchangeRate: 83,
+    // Advanced Options CBM — V30
+    cbmAdvancedMode: false, shippingCostUsd: 0, clearancePerCbm: 1667, installationCost: 0,
   });
   const [logoPreview, setLogoPreview] = useState('');
   const [companySaving, setCompanySaving] = useState(false);
@@ -177,6 +179,11 @@ const MasterSettings: React.FC = () => {
             showUsdColumn: c.showUsdColumn ?? false,
             ratePerCbm: c.ratePerCbm ?? 0,
             usdExchangeRate: c.usdExchangeRate ?? 83,
+            // Advanced Options CBM — V30
+            cbmAdvancedMode: c.cbmAdvancedMode ?? false,
+            shippingCostUsd: c.shippingCostUsd ?? 0,
+            clearancePerCbm: c.clearancePerCbm ?? 1667,
+            installationCost: c.installationCost ?? 0,
           });
           setLogoPreview(c.logo || '');
         }).catch(() => { })
@@ -954,101 +961,67 @@ const MasterSettings: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Export & Logistics Columns — Feature V28 */}
+                {/* Advanced Options (CBM) — V30: single toggle replaces old 3 toggles */}
                 <div className="bg-card border border-border rounded-2xl p-6">
-                  <div className="flex items-center gap-2 mb-1">
-                    <div className="w-7 h-7 rounded-lg bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-orange-600 dark:text-orange-400"><path d="M21 10V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l2-1.14"/><path d="m7.5 4.27 9 5.15"/><polyline points="3.29 7 12 12 20.71 7"/><line x1="12" x2="12" y1="22" y2="12"/><circle cx="18.5" cy="15.5" r="2.5"/><path d="M20.27 17.27 22 19"/></svg>
+                  {/* Header with toggle */}
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-lg bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-orange-600 dark:text-orange-400"><path d="M21 10V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l2-1.14"/><path d="m7.5 4.27 9 5.15"/><polyline points="3.29 7 12 12 20.71 7"/><line x1="12" x2="12" y1="22" y2="12"/></svg>
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">Advanced Options (CBM)</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">Enable CBM on products, USD pricing & export cost analysis panel</p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Export &amp; Logistics Columns</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">Show weight, CBM, and USD pricing in quotation PDFs</p>
-                    </div>
+                    <Toggle
+                      enabled={companyForm.cbmAdvancedMode ?? false}
+                      onToggle={() => { setCompanyForm((p) => ({ ...p, cbmAdvancedMode: !p.cbmAdvancedMode })); setCompanyDirty(true); }}
+                      color="bg-orange-500"
+                    />
                   </div>
 
-                  <div className="mt-5 space-y-4">
-                    {/* Show Weight Column */}
-                    <div className="flex items-center justify-between p-4 rounded-xl bg-muted/40 border border-border">
-                      <div>
-                        <p className="text-sm font-medium text-foreground">Net Weight Column</p>
-                        <p className="text-xs text-muted-foreground mt-0.5">Shows total net weight (kg) in quotation PDF summary</p>
-                      </div>
-                      <Toggle
-                        enabled={companyForm.showWeightColumn}
-                        onToggle={() => { setCompanyForm((p) => ({ ...p, showWeightColumn: !p.showWeightColumn })); setCompanyDirty(true); }}
-                        color="bg-orange-500"
-                      />
-                    </div>
+                  {/* Expanded settings — only when enabled */}
+                  {companyForm.cbmAdvancedMode && (
+                    <div className="mt-5 space-y-4 border-t border-border pt-4">
+                      <p className="text-xs text-muted-foreground">
+                        When enabled: CBM field appears on products · USD column in export PDF · Cost analysis panel shows in New Quotation
+                      </p>
 
-                    {/* Show CBM Column */}
-                    <div className="flex items-center justify-between p-4 rounded-xl bg-muted/40 border border-border">
-                      <div>
-                        <p className="text-sm font-medium text-foreground">CBM Column</p>
-                        <p className="text-xs text-muted-foreground mt-0.5">Shows total volume (m&#179;) in quotation PDF summary</p>
-                      </div>
-                      <Toggle
-                        enabled={companyForm.showCbmColumn}
-                        onToggle={() => { setCompanyForm((p) => ({ ...p, showCbmColumn: !p.showCbmColumn })); setCompanyDirty(true); }}
-                        color="bg-blue-500"
-                      />
-                    </div>
-
-                    {/* Show USD Column — only meaningful with CBM */}
-                    <div className={`flex items-center justify-between p-4 rounded-xl border transition-opacity ${companyForm.showCbmColumn ? 'bg-muted/40 border-border' : 'bg-muted/20 border-border opacity-50'}`}>
-                      <div>
-                        <p className="text-sm font-medium text-foreground">USD Freight Column</p>
-                        <p className="text-xs text-muted-foreground mt-0.5">Calculates freight cost in USD and INR using CBM × rate</p>
-                        {!companyForm.showCbmColumn && (
-                          <p className="text-xs text-amber-600 mt-1">Enable CBM column first</p>
-                        )}
-                      </div>
-                      <Toggle
-                        enabled={companyForm.showUsdColumn && companyForm.showCbmColumn}
-                        onToggle={() => {
-                          if (!companyForm.showCbmColumn) return;
-                          setCompanyForm((p) => ({ ...p, showUsdColumn: !p.showUsdColumn }));
-                          setCompanyDirty(true);
-                        }}
-                        color="bg-green-500"
-                      />
-                    </div>
-
-                    {/* Rate per CBM and USD Exchange Rate — shown when USD column is on */}
-                    {companyForm.showCbmColumn && companyForm.showUsdColumn && (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {/* USD Exchange Rate */}
                         <div>
-                          <label className="block text-sm font-medium text-foreground mb-1.5">
-                            Freight Rate (USD / m&#179;)
-                          </label>
-                          <input
-                            type="number"
-                            value={companyForm.ratePerCbm}
-                            min="0"
-                            step="0.01"
-                            onChange={(e) => { setCompanyForm((p) => ({ ...p, ratePerCbm: parseFloat(e.target.value) || 0 })); setCompanyDirty(true); }}
-                            className="input-field"
-                            placeholder="e.g. 250"
-                          />
-                          <p className="text-xs text-muted-foreground mt-1">USD charged per cubic metre of cargo</p>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-foreground mb-1.5">
-                            USD Exchange Rate (₹ per $1)
-                          </label>
-                          <input
-                            type="number"
-                            value={companyForm.usdExchangeRate}
-                            min="1"
-                            step="0.01"
+                          <label className="block text-sm font-medium text-foreground mb-1.5">USD Exchange Rate (₹ per $1)</label>
+                          <input type="number" value={companyForm.usdExchangeRate ?? 83} min="1" step="0.01"
                             onChange={(e) => { setCompanyForm((p) => ({ ...p, usdExchangeRate: parseFloat(e.target.value) || 83 })); setCompanyDirty(true); }}
-                            className="input-field"
-                            placeholder="e.g. 83"
-                          />
-                          <p className="text-xs text-muted-foreground mt-1">Used to convert freight USD → INR on the PDF</p>
+                            className="input-field" placeholder="e.g. 83" />
+                          <p className="text-xs text-muted-foreground mt-1">₹ per $1 — used to convert USD prices</p>
+                        </div>
+
+                        {/* Rate per CBM */}
+                        <div>
+                          <label className="block text-sm font-medium text-foreground mb-1.5">Rate per CBM (USD / m³)</label>
+                          <input type="number" value={companyForm.ratePerCbm ?? 0} min="0" step="0.01"
+                            onChange={(e) => { setCompanyForm((p) => ({ ...p, ratePerCbm: parseFloat(e.target.value) || 0 })); setCompanyDirty(true); }}
+                            className="input-field" placeholder="e.g. 25" />
+                          <p className="text-xs text-muted-foreground mt-1">USD freight charged per cubic metre</p>
+                        </div>
+
+                        {/* Clearance per CBM */}
+                        <div>
+                          <label className="block text-sm font-medium text-foreground mb-1.5">Clearance per CBM (₹ / m³)</label>
+                          <input type="number" value={companyForm.clearancePerCbm ?? 1667} min="0" step="1"
+                            onChange={(e) => { setCompanyForm((p) => ({ ...p, clearancePerCbm: parseFloat(e.target.value) || 1667 })); setCompanyDirty(true); }}
+                            className="input-field" placeholder="e.g. 1667" />
+                          <p className="text-xs text-muted-foreground mt-1">Customs clearance cost per m³ in INR</p>
                         </div>
                       </div>
-                    )}
-                  </div>
+
+                      <p className="text-xs text-muted-foreground pt-1">
+                        💡 Installation and Shipping charges are added per quotation via the <strong>Add Service</strong> section in New Quotation.
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 {/* License ID Card — shown to client so they can reference it when contacting support */}

@@ -23,7 +23,7 @@ const TAX_TYPES = ['GST', 'IGST', 'No Tax'];
 const GST_RATES = ['0', '5', '12', '18', '28'];
 
 const EMPTY: ProductRequest = {
-  productName: '', productCode: '', brand: '', category: '',
+  productName: '', productCode: '', hsnSacCode: '', brand: '', category: '',
   description: '', price: 0, purchasePrice: 0,
   unit: 'piece', quantity: 0, discountPercentage: 0,
   taxType: 'GST', taxPercentage: 18, expiryDate: '', imagePath: '',
@@ -47,20 +47,28 @@ const ProductManagement = () => {
   const [bulkUploading, setBulkUploading] = useState(false);
   const bulkInputRef = useRef<HTMLInputElement>(null);
 
-  // Company export column toggles — controls weight/CBM fields in the modal
-  const [showWeightField, setShowWeightField] = useState(false);
+  // Company CBM advanced mode toggle — controls CBM field in the modal
   const [showCbmField, setShowCbmField] = useState(false);
 
   useEffect(() => {
     if (!user) return;
     const isSuperAdmin = user.role === 'superadmin' || user.role === 'SUPER_ADMIN';
     if (!isSuperAdmin) {
-      companyService.getMyCompany()
-        .then((c) => {
-          setShowWeightField(Boolean(c.showWeightColumn));
-          setShowCbmField(Boolean(c.showCbmColumn));
-        })
-        .catch(() => {});
+      // Retry once on failure — handles token expiry race condition on page load
+      const fetchCompanySettings = (retryCount = 0) => {
+        companyService.getMyCompany()
+          .then((c) => {
+            const cbmOn = Boolean(c.cbmAdvancedMode ?? c.showCbmColumn ?? c.showUsdColumn);
+            setShowCbmField(cbmOn);
+          })
+          .catch((err) => {
+            if (retryCount === 0) {
+              // Wait 800ms for token refresh to complete, then retry once
+              setTimeout(() => fetchCompanySettings(1), 800);
+            }
+          });
+      };
+      fetchCompanySettings();
     }
   }, [user]);
 
@@ -87,6 +95,7 @@ const ProductManagement = () => {
       active: true,
       netWeight: p.netWeight,
       cbm: p.cbm,
+      hsnSacCode: p.hsnSacCode || '',
     } as Product));
     setProducts(mapped);
     setLoading(contextLoading);
@@ -146,6 +155,7 @@ const ProductManagement = () => {
     setFormData({
       productName: p.productName,
       productCode: p.productCode || '',
+      hsnSacCode: p.hsnSacCode || '',
       brand: p.brand || '',
       category: p.category || '',
       description: p.description || '',
@@ -210,7 +220,7 @@ const ProductManagement = () => {
     if (!filtered.length) { toast.error('No products to export'); return; }
     exportToExcel(
       filtered.map((p) => ({
-        code: p.productCode || '', name: p.productName, brand: p.brand || '',
+        code: p.productCode || '', hsn: p.hsnSacCode || '', name: p.productName, brand: p.brand || '',
         category: p.category || '', unit: p.unit, mrp: p.price,
         purchasePrice: p.purchasePrice || 0, taxType: p.taxType,
         gst: p.taxPercentage, qty: p.quantity, discount: p.discountPercentage,
@@ -218,6 +228,7 @@ const ProductManagement = () => {
       })),
       [
         { header: 'Code', key: 'code', width: 12 },
+        { header: 'HSN/SAC Code', key: 'hsn', width: 14 },
         { header: 'Product Name', key: 'name', width: 25 },
         { header: 'Brand', key: 'brand', width: 15 },
         { header: 'Category', key: 'category', width: 15 },
@@ -238,9 +249,10 @@ const ProductManagement = () => {
   // Download a blank template so users know the column format
   const handleDownloadTemplate = () => {
     exportToExcel(
-      [{ code: 'SKU-001', name: 'Sample Product', brand: 'Brand', category: 'Category', unit: 'piece', mrp: 100, purchasePrice: 80, taxType: 'GST', gst: 18, qty: 10, discount: 0, description: 'Product description' }],
+      [{ code: 'SKU-001', hsn: '95069100', name: 'Sample Product', brand: 'Brand', category: 'Category', unit: 'piece', mrp: 100, purchasePrice: 80, taxType: 'GST', gst: 18, qty: 10, discount: 0, description: 'Product description' }],
       [
         { header: 'Code', key: 'code', width: 12 },
+        { header: 'HSN/SAC Code', key: 'hsn', width: 14 },
         { header: 'Product Name *', key: 'name', width: 25 },
         { header: 'Brand', key: 'brand', width: 15 },
         { header: 'Category', key: 'category', width: 15 },
@@ -277,6 +289,7 @@ const ProductManagement = () => {
       // Map Excel columns → ProductRequest — column headers match the template
       const products: ProductRequest[] = rows.map((row) => ({
         productCode:        String(row['Code'] || ''),
+        hsnSacCode:         String(row['HSN/SAC Code'] || row['HSN'] || row['SAC'] || ''),
         productName:        String(row['Product Name *'] || row['Product Name'] || ''),
         brand:              String(row['Brand'] || ''),
         category:           String(row['Category'] || ''),
@@ -404,6 +417,7 @@ const ProductManagement = () => {
                       <th className="px-4 py-3 text-left">Image</th>
                       <SortableHeader label="Product Name" sortKey="productName" sort={sort} onSort={handleSort} />
                       <th className="px-4 py-3 text-left">Code</th>
+                      <th className="px-4 py-3 text-left">HSN/SAC</th>
                       <th className="px-4 py-3 text-left">Brand / Category</th>
                       <th className="px-4 py-3 text-right">MRP</th>
                       <th className="px-4 py-3 text-right">Purchase</th>
@@ -429,7 +443,12 @@ const ProductManagement = () => {
                           <p className="font-medium text-foreground">{p.productName}</p>
                           {p.description && <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{p.description}</p>}
                         </td>
-                        <td className="px-4 py-3 text-muted-foreground font-mono text-xs">{p.productCode || '—'}</td>
+                        <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
+                          {p.productCode || '—'}
+                        </td>
+                        <td className="px-4 py-3 font-mono text-xs text-foreground">
+                          {p.hsnSacCode || '—'}
+                        </td>
                         <td className="px-4 py-3">
                           {p.brand && <p className="text-sm text-foreground">{p.brand}</p>}
                           {p.category && (
@@ -503,7 +522,21 @@ const ProductManagement = () => {
                 {field('Product Code', 'productCode', 'text', false, 'e.g. SKU-001')}
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1.5">HSN/SAC Code</label>
+                  <input
+                    type="text"
+                    value={formData.hsnSacCode || ''}
+                    onChange={(e) => { setFormData((p) => ({ ...p, hsnSacCode: e.target.value })); }}
+                    className="input-field font-mono"
+                    placeholder="e.g. 95069100"
+                    maxLength={20}
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">HSN for goods · SAC for services (GST compliance)</p>
+                </div>
                 {field('Brand', 'brand', 'text', false, 'e.g. Samsung')}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {field('Category', 'category', 'text', false, 'e.g. Electronics')}
               </div>
 
@@ -569,44 +602,25 @@ const ProductManagement = () => {
                 />
               </div>
 
-              {/* Export / Logistics — shown only when company has toggles enabled */}
-              {(showWeightField || showCbmField) && (
+              {/* CBM — shown only when company has Advanced Options (CBM) enabled */}
+              {showCbmField && (
                 <div className="space-y-3 pt-1">
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 10V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l2-1.14"/><path d="m7.5 4.27 9 5.15"/><polyline points="3.29 7 12 12 20.71 7"/><line x1="12" x2="12" y1="22" y2="12"/></svg>
-                    Export / Logistics (per unit)
+                    Advanced Options (CBM)
                   </p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {showWeightField && (
-                      <div>
-                        <label className="block text-sm font-medium text-foreground mb-1.5">Net Weight (kg/unit)</label>
-                        <input
-                          type="number"
-                          value={formData.netWeight ?? ''}
-                          onChange={(e) => setFormData((p) => ({ ...p, netWeight: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
-                          placeholder="e.g. 12.500"
-                          step="0.001"
-                          min="0"
-                          className="input-field"
-                        />
-                        <p className="text-xs text-muted-foreground mt-1">Weight per unit in kilograms</p>
-                      </div>
-                    )}
-                    {showCbmField && (
-                      <div>
-                        <label className="block text-sm font-medium text-foreground mb-1.5">CBM (m³/unit)</label>
-                        <input
-                          type="number"
-                          value={formData.cbm ?? ''}
-                          onChange={(e) => setFormData((p) => ({ ...p, cbm: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
-                          placeholder="e.g. 0.1500"
-                          step="0.0001"
-                          min="0"
-                          className="input-field"
-                        />
-                        <p className="text-xs text-muted-foreground mt-1">Volume per unit in cubic metres</p>
-                      </div>
-                    )}
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-1.5">CBM (m³/unit)</label>
+                    <input
+                      type="number"
+                      value={formData.cbm ?? ''}
+                      onChange={(e) => setFormData((p) => ({ ...p, cbm: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
+                      placeholder="e.g. 0.6750"
+                      step="0.0001"
+                      min="0"
+                      className="input-field"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">Volume per unit in cubic metres (L × W × H)</p>
                   </div>
                 </div>
               )}

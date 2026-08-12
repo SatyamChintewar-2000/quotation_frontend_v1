@@ -4,6 +4,7 @@ export interface Product {
   id: number;
   productName: string;
   productCode?: string;
+  hsnSacCode?: string;
   brand?: string;
   category?: string;
   description?: string;
@@ -30,6 +31,7 @@ export interface Product {
 export interface ProductRequest {
   productName: string;
   productCode?: string;
+  hsnSacCode?: string;
   brand?: string;
   category?: string;
   description?: string;

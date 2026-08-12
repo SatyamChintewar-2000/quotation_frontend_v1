@@ -90,8 +90,7 @@ const EnquiryManagement = () => {
     else if (!/^[a-zA-Z\s'-]+$/.test(formData.name.trim())) e.name = 'Name can only contain letters, spaces, hyphens or apostrophes';
     if (!formData.contact.trim()) e.contact = 'Contact is required';
     else if (!/^[6-9][0-9]{9}$/.test(formData.contact)) e.contact = 'Enter a valid 10-digit Indian mobile number';
-    if (!formData.email || !formData.email.trim()) e.email = 'Email is required';
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim())) e.email = 'Enter a valid email address';
+    if (formData.email && formData.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim())) e.email = 'Enter a valid email address';
     if (!formData.status) e.status = 'Status is required';
     if (!formData.enquiryDate) e.enquiryDate = 'Enquiry date is required';
     setErrors(e);
@@ -398,7 +397,7 @@ const EnquiryManagement = () => {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {field('Email', 'email', 'email', true)}
+                {field('Email', 'email', 'email', false)}
                 {select('Gender', 'gender', ['Male', 'Female', 'Other'])}
               </div>
 
