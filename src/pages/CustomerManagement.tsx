@@ -84,9 +84,7 @@ const CustomerManagement = () => {
       newErrors.customerName = 'Name can only contain letters, spaces, hyphens, or apostrophes';
     }
 
-    if (!formData.email.trim()) {
-      newErrors.email = 'Email is required';
-    } else if (!EMAIL_REGEX.test(formData.email)) {
+    if (formData.email.trim() && !EMAIL_REGEX.test(formData.email)) {
       newErrors.email = 'Enter a valid email address';
     }
 
@@ -381,7 +379,8 @@ const CustomerManagement = () => {
 
               <div>
                 <label className="block text-sm font-medium text-foreground mb-2">
-                  Email *
+                  Email
+                  <span className="ml-1 text-xs font-normal text-muted-foreground">(optional)</span>
                 </label>
                 <input
                   type="email"

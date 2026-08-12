@@ -29,6 +29,17 @@ export interface Company {
   licenseId?: string;
   // Subscription expiry
   subscriptionExpiresAt?: string;
+  // CBM / Weight / USD export column toggles (V28) — kept for backward compat
+  showWeightColumn?: boolean;
+  showCbmColumn?: boolean;
+  showUsdColumn?: boolean;
+  ratePerCbm?: number;
+  usdExchangeRate?: number;
+  // Advanced Options (CBM) — V30
+  cbmAdvancedMode?: boolean;
+  shippingCostUsd?: number;
+  clearancePerCbm?: number;
+  installationCost?: number;
 }
 
 export interface CompanyRequest {
@@ -52,6 +63,17 @@ export interface CompanyRequest {
   pdfAccentColor?: string;
   pdfWatermarkEnabled?: boolean;
   pdfWatermarkOpacity?: number;
+  // CBM / Weight / USD export column toggles (V28) — kept for backward compat
+  showWeightColumn?: boolean;
+  showCbmColumn?: boolean;
+  showUsdColumn?: boolean;
+  ratePerCbm?: number;
+  usdExchangeRate?: number;
+  // Advanced Options (CBM) — V30
+  cbmAdvancedMode?: boolean;
+  shippingCostUsd?: number;
+  clearancePerCbm?: number;
+  installationCost?: number;
 }
 
 export const companyService = {

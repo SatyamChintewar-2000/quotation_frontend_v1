@@ -16,6 +16,8 @@ interface QuotationItem {
   quantity: number;
   discountPercentage?: number;
   discount?: number;
+  /** Flat rupee discount amount — when > 0, shown in PDF instead of %-derived price */
+  discountAmount?: number;
   taxPercentage?: number;
   gst?: number;
   itemTotal?: number;
@@ -26,6 +28,9 @@ interface QuotationItem {
   description?: string;
   productDescription?: string;
   productDescriptionSnapshot?: string;
+  // Weight & CBM snapshots captured at time of quoting
+  netWeightSnapshot?: number;
+  cbmSnapshot?: number;
 }
 
 interface QuotationData {
@@ -411,11 +416,15 @@ const QuotationPrintView = React.forwardRef<HTMLDivElement, Props>(({ quotation,
               {quotation.items.map((item, idx) => {
                 const price     = Number(item.unitPrice ?? item.price ?? 0);
                 const disc      = Number(item.discountPercentage ?? item.discount ?? 0);
+                const flatAmt   = Number(item.discountAmount ?? 0);
                 const tax       = Number(item.taxPercentage ?? item.gst ?? 0);
                 const base      = price * item.quantity;
-                const afterDisc = base - base * disc / 100;
+                // When a flat amount was saved, use it directly; otherwise derive from %
+                const discValue = flatAmt > 0 ? flatAmt : base * disc / 100;
+                const afterDisc = base - discValue;
                 const total     = afterDisc + afterDisc * tax / 100;
-                const bestPrice = price - price * disc / 100;
+                // Best Price (per unit after discount)
+                const bestPrice = flatAmt > 0 ? price - flatAmt / item.quantity : price - price * disc / 100;
                 const imgSrc    = resolvedImages[idx] ?? '';
                 const name      = item.productNameSnapshot || item.productName || '—';
                 const desc      = item.productDescriptionSnapshot || item.productDescription || item.description || '';
@@ -679,6 +688,8 @@ const QuotationPrintView = React.forwardRef<HTMLDivElement, Props>(({ quotation,
                         </div>
                       </td>
                     </tr>
+
+                    {/* Logistics Summary removed — CBM data is internal only */}
                   </tbody>
                 </table>
               </td>

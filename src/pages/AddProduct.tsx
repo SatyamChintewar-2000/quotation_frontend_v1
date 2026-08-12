@@ -16,8 +16,9 @@ import {
   Calendar,
   FileText,
   Hash,
-  Scale,
+  Layers,
   Building2,
+  Boxes,
 } from 'lucide-react';
 
 interface ProductFormData {
@@ -32,7 +33,9 @@ interface ProductFormData {
   expiryDate: string;
   description: string;
   image: string;
-  companyId: string;
+  companyId: string; // For SUPER_ADMIN
+  netWeight: string; // Optional: kg per unit
+  cbm: string;       // Optional: cubic metres per unit
 }
 
 const initialFormData: ProductFormData = {
@@ -48,24 +51,47 @@ const initialFormData: ProductFormData = {
   description: '',
   image: '',
   companyId: '',
+  netWeight: '',
+  cbm: '',
 };
 
 const AddProduct = () => {
   const { user } = useAuth();
-  const { addProduct, products } = useProducts();
+  const { addProduct, products, loading: productsLoading } = useProducts();
   const [formData, setFormData] = useState<ProductFormData>(initialFormData);
   const [errors, setErrors] = useState<Partial<ProductFormData>>({});
   const [imagePreview, setImagePreview] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
   const [companies, setCompanies] = useState<{ id: number; companyName: string }[]>([]);
 
+  // Company export column toggles — fetched once on mount
+  const [showWeightField, setShowWeightField] = useState(false);
+  const [showCbmField, setShowCbmField] = useState(false);
+  const [companySettingsLoaded, setCompanySettingsLoaded] = useState(false);
+
   const isSuperAdmin = user?.role === 'superadmin' || user?.role === 'SUPER_ADMIN';
 
   useEffect(() => {
+    // Wait until user is available before fetching
+    if (!user) return;
+
     if (isSuperAdmin) {
       companyService.getAll().then(setCompanies).catch(() => {});
+      setCompanySettingsLoaded(true);
+    } else {
+      // Both CLIENT and STAFF: read company CBM advanced mode toggle
+      companyService.getMyCompany()
+        .then((c) => {
+          setShowWeightField(false); // weight field removed
+          setShowCbmField(Boolean(c.cbmAdvancedMode ?? c.showCbmColumn));
+          setCompanySettingsLoaded(true);
+        })
+        .catch((err) => {
+          console.warn('Could not load company settings:', err?.response?.status);
+          setCompanySettingsLoaded(true); // still mark as loaded so form shows
+        });
     }
-  }, [isSuperAdmin]);
+  }, [user, isSuperAdmin]);
 
   const units = ['piece', 'kg', 'litre', 'meter', 'box', 'set', 'dozen','Nos'];
   const taxTypes = ['GST', 'IGST', 'No Tax'];
@@ -156,6 +182,8 @@ const AddProduct = () => {
         image: formData.image,
         createdBy: user?.id || '',
         companyId: isSuperAdmin && formData.companyId ? Number(formData.companyId) : undefined,
+        netWeight: formData.netWeight ? parseFloat(formData.netWeight) : undefined,
+        cbm: formData.cbm ? parseFloat(formData.cbm) : undefined,
       });
       handleClear();
     } catch {
@@ -330,7 +358,7 @@ const AddProduct = () => {
                       Unit
                     </label>
                     <div className="relative">
-                      <Scale
+                      <Layers
                         size={18}
                         className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground"
                       />
@@ -512,6 +540,42 @@ const AddProduct = () => {
                     />
                   </div>
                 </div>
+
+                {/* CBM — shown only when company has Advanced Options (CBM) enabled */}
+                {(showWeightField || showCbmField) && (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 pb-1 border-b border-border">
+                      <Boxes size={15} className="text-orange-500" />
+                      <span className="text-sm font-semibold text-foreground">Advanced Options (CBM)</span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {showCbmField && (
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium text-foreground">
+                            CBM (m&#179;/unit)
+                          </label>
+                          <div className="relative">
+                            <Boxes
+                              size={18}
+                              className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground"
+                            />
+                            <input
+                              type="number"
+                              name="cbm"
+                              value={formData.cbm}
+                              onChange={handleInputChange}
+                              placeholder="e.g. 0.6750"
+                              step="0.0001"
+                              min="0"
+                              className="input-field pl-11"
+                            />
+                          </div>
+                          <p className="text-xs text-muted-foreground">Volume per unit in cubic metres (L × W × H)</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {/* Image Upload */}
                 <div className="space-y-2">

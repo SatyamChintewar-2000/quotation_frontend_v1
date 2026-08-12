@@ -4,6 +4,7 @@ export interface Product {
   id: number;
   productName: string;
   productCode?: string;
+  hsnSacCode?: string;
   brand?: string;
   category?: string;
   description?: string;
@@ -23,11 +24,15 @@ export interface Product {
   createdByName?: string;
   createdAt?: string;
   active?: boolean;
+  // Optional: weight and volume per unit (for export/logistics quotations)
+  netWeight?: number;
+  cbm?: number;
 }
 
 export interface ProductRequest {
   productName: string;
   productCode?: string;
+  hsnSacCode?: string;
   brand?: string;
   category?: string;
   description?: string;
@@ -42,6 +47,9 @@ export interface ProductRequest {
   expiryDate?: string;
   imagePath?: string;
   companyId?: number; // Required for SUPER_ADMIN
+  // Optional: weight and volume per unit (for export/logistics quotations)
+  netWeight?: number;
+  cbm?: number;
 }
 
 export const productService = {

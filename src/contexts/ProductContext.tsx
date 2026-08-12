@@ -19,6 +19,16 @@ interface Product {
   image?: string;
   createdBy: string;
   companyId?: number;
+  // Additional fields
+  productCode?: string;
+  brand?: string;
+  category?: string;
+  purchasePrice?: number;
+  // Optional: weight and volume per unit
+  netWeight?: number;
+  cbm?: number;
+  // HSN/SAC code for GST compliance
+  hsnSacCode?: string;
 }
 
 interface ProductContextType {
@@ -48,6 +58,13 @@ const mapAPIProductToProduct = (apiProduct: APIProduct): Product => ({
   description: apiProduct.description || '',
   image: apiProduct.imagePath,
   createdBy: apiProduct.createdBy?.toString() || '',
+  productCode: apiProduct.productCode,
+  brand: apiProduct.brand,
+  category: apiProduct.category,
+  purchasePrice: apiProduct.purchasePrice,
+  netWeight: apiProduct.netWeight,
+  cbm: apiProduct.cbm,
+  hsnSacCode: apiProduct.hsnSacCode,
 });
 
 // Helper function to map frontend product to API request
@@ -64,6 +81,9 @@ const mapProductToAPIRequest = (product: Omit<Product, 'id'> | Partial<Product>)
   expiryDate: product.expiryDate,
   imagePath: product.image,
   companyId: product.companyId ? Number(product.companyId) : undefined,
+  netWeight: product.netWeight,
+  cbm: product.cbm,
+  hsnSacCode: product.hsnSacCode,
 });
 
 export const ProductProvider = ({ children }: { children: ReactNode }) => {
