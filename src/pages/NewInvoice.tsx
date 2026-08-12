@@ -4,7 +4,7 @@ import { useInvoices } from '@/contexts/InvoiceContext';
 import { useQuotations } from '@/contexts/QuotationContext';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { ArrowLeft, FileText, User, Package, IndianRupee, CalendarDays, Percent, StickyNote, ScrollText } from 'lucide-react';
+import { ArrowLeft, FileText, User, Package, IndianRupee, CalendarDays, Percent, StickyNote, ScrollText, FileCheck, FileBadge } from 'lucide-react';
 import NumericInput from '@/components/common/NumericInput';
 
 const NewInvoice = () => {
@@ -22,6 +22,11 @@ const NewInvoice = () => {
     discountPercentage: 0,
     notes: '',
     termsAndConditions: '',
+    documentType: 'INVOICE' as 'INVOICE' | 'PROFORMA_INVOICE',
+    gstType: 'SGST_CGST' as 'IGST' | 'SGST_CGST',
+    shippingAddress: '',
+    deliveryDate: '',
+    expiryDate: '',
   });
 
   const [selectedQuotation, setSelectedQuotation] = useState<(typeof quotations)[0] | null>(null);
@@ -58,6 +63,11 @@ const NewInvoice = () => {
         discountPercentage: formData.discountPercentage,
         notes: formData.notes,
         termsAndConditions: formData.termsAndConditions,
+        documentType: formData.documentType,
+        gstType: formData.gstType,
+        shippingAddress: formData.shippingAddress || undefined,
+        deliveryDate: formData.deliveryDate || undefined,
+        expiryDate: formData.expiryDate || undefined,
       });
       if (result) navigate(`/invoice/${result.id}`);
     } finally {
@@ -147,6 +157,75 @@ const NewInvoice = () => {
           <div className="bg-card rounded-xl border border-border shadow-sm p-6 space-y-4">
             <h2 className="text-sm font-semibold text-foreground uppercase tracking-wide">Invoice Details</h2>
 
+            {/* Document Type Toggle */}
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">Document Type</label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, documentType: 'INVOICE' })}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-lg border-2 text-sm font-semibold transition-all ${
+                    formData.documentType === 'INVOICE'
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-border bg-card text-muted-foreground hover:border-primary/40'
+                  }`}
+                >
+                  <FileCheck size={16} />
+                  Invoice
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, documentType: 'PROFORMA_INVOICE' })}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-lg border-2 text-sm font-semibold transition-all ${
+                    formData.documentType === 'PROFORMA_INVOICE'
+                      ? 'border-amber-500 bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400'
+                      : 'border-border bg-card text-muted-foreground hover:border-amber-300'
+                  }`}
+                >
+                  <FileBadge size={16} />
+                  Proforma Invoice
+                </button>
+              </div>
+              {formData.documentType === 'PROFORMA_INVOICE' && (
+                <p className="text-xs text-amber-600 mt-1.5 dark:text-amber-400">
+                  This is a Proforma Invoice and is not a Tax Invoice.
+                </p>
+              )}
+            </div>
+
+            {/* GST Type — only relevant for Proforma Invoice */}
+            {formData.documentType === 'PROFORMA_INVOICE' && (
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">GST Type</label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, gstType: 'SGST_CGST' })}
+                  className={`flex-1 py-2.5 rounded-lg border-2 text-sm font-semibold transition-all ${
+                    formData.gstType === 'SGST_CGST'
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-border text-muted-foreground hover:border-primary/40'
+                  }`}
+                >
+                  SGST + CGST
+                  <span className="block text-xs font-normal opacity-70">Intra-state</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, gstType: 'IGST' })}
+                  className={`flex-1 py-2.5 rounded-lg border-2 text-sm font-semibold transition-all ${
+                    formData.gstType === 'IGST'
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-border text-muted-foreground hover:border-primary/40'
+                  }`}
+                >
+                  IGST
+                  <span className="block text-xs font-normal opacity-70">Inter-state</span>
+                </button>
+              </div>
+            </div>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">
@@ -174,6 +253,45 @@ const NewInvoice = () => {
                   className="input-field"
                 />
               </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1.5">
+                  <span className="flex items-center gap-1.5"><CalendarDays size={14} />Delivery Date</span>
+                </label>
+                <input
+                  type="date"
+                  name="deliveryDate"
+                  value={formData.deliveryDate}
+                  onChange={handleInputChange}
+                  className="input-field"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1.5">
+                  <span className="flex items-center gap-1.5"><CalendarDays size={14} />Expiry Date</span>
+                </label>
+                <input
+                  type="date"
+                  name="expiryDate"
+                  value={formData.expiryDate}
+                  onChange={handleInputChange}
+                  className="input-field"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1.5">Shipping Address</label>
+              <textarea
+                name="shippingAddress"
+                value={formData.shippingAddress}
+                onChange={handleInputChange}
+                rows={2}
+                placeholder="Shipping address (leave blank to use customer's shipping address)"
+                className="input-field resize-none"
+              />
             </div>
 
             <div className="max-w-xs">

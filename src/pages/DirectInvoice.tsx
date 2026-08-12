@@ -9,7 +9,7 @@ import invoiceService from '@/services/invoiceService';
 import { toast } from 'sonner';
 import {
   FileText, Users, Package, Plus, Minus, Trash2, Save,
-  Calculator, AlertTriangle, ChevronDown, Search, X, Calendar, ArrowLeft,
+  Calculator, AlertTriangle, ChevronDown, Search, X, Calendar, ArrowLeft, FileCheck, FileBadge,
 } from 'lucide-react';
 
 // Module-level stale cache for customers — avoids re-fetch on every visit
@@ -47,6 +47,11 @@ const DirectInvoice = () => {
   const [dueDate, setDueDate] = useState(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
   const [notes, setNotes] = useState('');
   const [termsAndConditions, setTermsAndConditions] = useState('');
+  const [documentType, setDocumentType] = useState<'INVOICE' | 'PROFORMA_INVOICE'>('INVOICE');
+  const [gstType, setGstType] = useState<'IGST' | 'SGST_CGST'>('SGST_CGST');
+  const [shippingAddress, setShippingAddress] = useState('');
+  const [deliveryDate, setDeliveryDate] = useState('');
+  const [expiryDate, setExpiryDate] = useState('');
   const [invoiceDiscountPercentage, setInvoiceDiscountPercentage] = useState(0);
   const [discountInput, setDiscountInput] = useState('0');
   const [invoiceItems, setInvoiceItems] = useState<InvoiceItemForm[]>([]);
@@ -111,6 +116,12 @@ const DirectInvoice = () => {
   }, [contextProducts]);
 
   const selectedCustomer = customers.find((c) => c.id === selectedCustomerId);
+  // Pre-fill shipping address when customer changes
+  React.useEffect(() => {
+    if (selectedCustomer) {
+      setShippingAddress(selectedCustomer.shippingAddress || '');
+    }
+  }, [selectedCustomerId]);
   const filteredCustomers = customers.filter((c) =>
     c.customerName.toLowerCase().includes(customerSearch.toLowerCase()) ||
     c.email.toLowerCase().includes(customerSearch.toLowerCase())
@@ -195,6 +206,11 @@ const DirectInvoice = () => {
         dueDate,
         notes,
         termsAndConditions,
+        documentType,
+        gstType,
+        shippingAddress: shippingAddress || undefined,
+        deliveryDate: deliveryDate || undefined,
+        expiryDate: expiryDate || undefined,
         discountPercentage: invoiceDiscountPercentage,
         items: invoiceItems.map((i) => ({
           productId: i.productId,
@@ -312,6 +328,41 @@ const DirectInvoice = () => {
                 <h3 className="font-semibold text-foreground text-sm">Invoice Details</h3>
               </div>
               <div className="space-y-3">
+                {/* Document Type */}
+                <div>
+                  <label className="block text-xs font-medium text-foreground mb-1">Document Type</label>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => setDocumentType('INVOICE')}
+                      className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border-2 text-xs font-semibold transition-all ${documentType === 'INVOICE' ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:border-primary/40'}`}>
+                      <FileCheck size={13} /> Invoice
+                    </button>
+                    <button type="button" onClick={() => setDocumentType('PROFORMA_INVOICE')}
+                      className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border-2 text-xs font-semibold transition-all ${documentType === 'PROFORMA_INVOICE' ? 'border-amber-500 bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400' : 'border-border text-muted-foreground hover:border-amber-300'}`}>
+                      <FileBadge size={13} /> Proforma Invoice
+                    </button>
+                  </div>
+                  {documentType === 'PROFORMA_INVOICE' && (
+                    <p className="text-xs text-amber-600 mt-1 dark:text-amber-400">This is a Proforma Invoice and is not a Tax Invoice.</p>
+                  )}
+                </div>
+
+                {/* GST Type — only relevant for Proforma Invoice */}
+                {documentType === 'PROFORMA_INVOICE' && (
+                <div>
+                  <label className="block text-xs font-medium text-foreground mb-1">GST Type</label>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => setGstType('SGST_CGST')}
+                      className={`flex-1 py-2 rounded-lg border-2 text-xs font-semibold transition-all ${gstType === 'SGST_CGST' ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:border-primary/40'}`}>
+                      SGST + CGST<span className="block font-normal opacity-70">Intra-state</span>
+                    </button>
+                    <button type="button" onClick={() => setGstType('IGST')}
+                      className={`flex-1 py-2 rounded-lg border-2 text-xs font-semibold transition-all ${gstType === 'IGST' ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:border-primary/40'}`}>
+                      IGST<span className="block font-normal opacity-70">Inter-state</span>
+                    </button>
+                  </div>
+                </div>
+                )}
+
                 <div>
                   <label className="block text-xs font-medium text-foreground mb-1">Invoice Date *</label>
                   <input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} className="input-field" />
@@ -319,6 +370,18 @@ const DirectInvoice = () => {
                 <div>
                   <label className="block text-xs font-medium text-foreground mb-1 flex items-center gap-1"><Calendar size={11} />Due Date *</label>
                   <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="input-field" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-foreground mb-1 flex items-center gap-1"><Calendar size={11} />Delivery Date</label>
+                  <input type="date" value={deliveryDate} onChange={(e) => setDeliveryDate(e.target.value)} className="input-field" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-foreground mb-1 flex items-center gap-1"><Calendar size={11} />Expiry Date</label>
+                  <input type="date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} className="input-field" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-foreground mb-1">Shipping Address</label>
+                  <textarea value={shippingAddress} onChange={(e) => setShippingAddress(e.target.value)} rows={2} placeholder="Shipping address (auto-filled from customer)" className="input-field resize-none" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-foreground mb-1">Invoice Discount (%)</label>

@@ -56,6 +56,7 @@ export interface PdfQuotation {
   customerName?: string;
   customerPhone?: string;
   customerAddress?: string;
+  shippingAddress?: string;
   createdAt: string;
   quotationDate?: string;
   deliveryDate?: string;
@@ -531,7 +532,9 @@ async function drawCompactHeader(
   // ── Bill To | QUOTATION title | Quote details — bordered 3-column box ──
   const C1 = 60, C2 = 62, C3 = CW - C1 - C2;
   const secY = y;
-  const secH = 34; // increased to fit Quote No + Date + Delivery + Valid Till
+  // Expand height to fit all content: addresses + quote fields
+  const hasShipping = !!(q.shippingAddress && q.shippingAddress.trim());
+  const secH = hasShipping ? 42 : 34;
 
   // Outer border of the 3-column section
   sd(pdf, ...primary);
@@ -562,6 +565,18 @@ async function drawCompactHeader(
   if (q.customerAddress) {
     const al: string[] = pdf.splitTextToSize(q.customerAddress, C1 - pad * 2);
     for (const l of al.slice(0, 2)) { pdf.text(l, ML + pad, by); by += 3.5; }
+  }
+  if (q.shippingAddress) {
+    by += 2;
+    pdf.setFontSize(6.5);
+    pdf.setFont('helvetica', 'bold');
+    st(pdf, 107, 114, 128);
+    pdf.text('SHIP TO:', ML + pad, by);
+    by += 3.5;
+    pdf.setFont('helvetica', 'normal');
+    st(pdf, 17, 24, 39);
+    const sl: string[] = pdf.splitTextToSize(q.shippingAddress, C1 - pad * 2);
+    for (const l of sl.slice(0, 2)) { pdf.text(l, ML + pad, by); by += 3.2; }
   }
 
   // ── QUOTATION title (centre column) ──
@@ -598,11 +613,12 @@ async function drawCompactHeader(
   }
 
   if (q.expiryDate) {
+    const exRow = q.deliveryDate ? secY + 29 : secY + 22;
     st(pdf, 107, 114, 128);
-    pdf.text('Valid Till:', dx, secY + 29);
+    pdf.text('Valid Till:', dx, exRow);
     pdf.setFont('helvetica', 'bold');
-    st(pdf, 17, 24, 39);
-    pdf.text(fmtDate(q.expiryDate), dx + rw, secY + 29, { align: 'right' });
+    st(pdf, 220, 38, 38);
+    pdf.text(fmtDate(q.expiryDate), dx + rw, exRow, { align: 'right' });
   }
 
   y = secY + secH + 6;

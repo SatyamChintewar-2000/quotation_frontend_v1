@@ -6,6 +6,7 @@ export interface Customer {
   email: string;
   phone: string;
   address?: string;
+  shippingAddress?: string;
   gstNumber?: string;
   companyId?: number;
   companyName?: string;
@@ -18,6 +19,7 @@ export interface CustomerRequest {
   email: string;
   phone: string;
   address?: string;
+  shippingAddress?: string;
 }
 
 export const customerService = {

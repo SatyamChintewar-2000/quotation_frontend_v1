@@ -84,6 +84,8 @@ const NewQuotation = () => {
   const [executiveName, setExecutiveName] = useState('');
   const [notes, setNotes] = useState('');
   const [termsAndConditions, setTermsAndConditions] = useState('');
+  const [customerAddress, setCustomerAddress] = useState('');
+  const [shippingAddress, setShippingAddress] = useState('');
   const [quotationDiscountPercentage, setQuotationDiscountPercentage] = useState(0);
   const [discountInput, setDiscountInput] = useState('0');
   const [quotationItems, setQuotationItems] = useState<QuotationItemForm[]>([]);
@@ -246,10 +248,21 @@ const NewQuotation = () => {
     // Load hide service charges flag
     setHideServiceChargesOnPdf(quotation.hideServiceChargesOnPdf === true);
 
+    // Load address snapshots
+    setCustomerAddress(quotation.customerAddress || '');
+    setShippingAddress(quotation.shippingAddress || '');
+
     toast.success('Quotation loaded for editing');
   };
 
   const selectedCustomer = customers.find((c) => c.id === selectedCustomerId);
+  // Pre-fill address fields when customer is selected
+  React.useEffect(() => {
+    if (selectedCustomer) {
+      setCustomerAddress(selectedCustomer.address || '');
+      setShippingAddress(selectedCustomer.shippingAddress || '');
+    }
+  }, [selectedCustomerId]);
   const filteredCustomers = customers.filter((c) =>
     c.customerName.toLowerCase().includes(customerSearch.toLowerCase()) ||
     c.email.toLowerCase().includes(customerSearch.toLowerCase())
@@ -421,6 +434,8 @@ const NewQuotation = () => {
         notes,
         termsAndConditions,
         discountPercentage: quotationDiscountPercentage,
+        customerAddress: customerAddress || undefined,
+        shippingAddress: shippingAddress || undefined,
         items: quotationItems.map((i) => ({
           productId: i.productId,
           quantity: i.quantity,
@@ -586,6 +601,14 @@ const NewQuotation = () => {
                 <div>
                   <label className="block text-xs font-medium text-foreground mb-1">Terms & Conditions</label>
                   <textarea value={termsAndConditions} onChange={(e) => setTermsAndConditions(e.target.value)} rows={2} placeholder="Payment terms, delivery terms..." className="input-field resize-none" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-foreground mb-1">Customer / Billing Address</label>
+                  <textarea value={customerAddress} onChange={(e) => setCustomerAddress(e.target.value)} rows={2} placeholder="Billing address (auto-filled from customer)" className="input-field resize-none" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-foreground mb-1">Shipping Address</label>
+                  <textarea value={shippingAddress} onChange={(e) => setShippingAddress(e.target.value)} rows={2} placeholder="Shipping address (leave blank if same as billing)" className="input-field resize-none" />
                 </div>
               </div>
             </div>

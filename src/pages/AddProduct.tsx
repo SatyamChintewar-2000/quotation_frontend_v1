@@ -29,6 +29,7 @@ interface ProductFormData {
   discount: string;
   taxType: string;
   gst: string;
+  hsnCode: string;
   expiryDate: string;
   description: string;
   image: string;
@@ -45,6 +46,7 @@ const initialFormData: ProductFormData = {
   discount: '0',
   taxType: 'GST',
   gst: '18',
+  hsnCode: '',
   expiryDate: '',
   description: '',
   image: '',
@@ -174,6 +176,7 @@ const AddProduct = () => {
         discount: parseFloat(formData.discount),
         taxType: formData.taxType,
         gst: parseFloat(formData.gst),
+        hsnCode: formData.hsnCode || undefined,
         expiryDate: formData.expiryDate,
         description: formData.description,
         image: formData.image,
@@ -464,6 +467,32 @@ const AddProduct = () => {
                       ))}
                     </select>
                   </div>
+                </div>
+
+                {/* HSN/SAC Code */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-foreground">
+                    HSN / SAC Code
+                    <span className="text-xs text-muted-foreground ml-2">(optional — for GST billing)</span>
+                  </label>
+                  <div className="relative">
+                    <Hash
+                      size={18}
+                      className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground"
+                    />
+                    <input
+                      type="text"
+                      name="hsnCode"
+                      value={formData.hsnCode}
+                      onChange={handleInputChange}
+                      placeholder="e.g. 9506, 8471"
+                      maxLength={20}
+                      className="input-field pl-11"
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    HSN (goods) or SAC (services) code used in GST invoices
+                  </p>
                 </div>
 
                 {/* Expiry Date */}

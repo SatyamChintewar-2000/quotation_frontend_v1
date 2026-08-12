@@ -26,7 +26,7 @@ const EMPTY: ProductRequest = {
   productName: '', productCode: '', hsnSacCode: '', brand: '', category: '',
   description: '', price: 0, purchasePrice: 0,
   unit: 'piece', quantity: 0, discountPercentage: 0,
-  taxType: 'GST', taxPercentage: 18, expiryDate: '', imagePath: '',
+  taxType: 'GST', taxPercentage: 18, expiryDate: '', imagePath: '', hsnCode: '',
   netWeight: undefined, cbm: undefined,
 };
 
@@ -170,6 +170,7 @@ const ProductManagement = () => {
       imagePath: p.imagePath || '',
       netWeight: p.netWeight ?? undefined,
       cbm: p.cbm ?? undefined,
+      hsnCode: p.hsnCode || '',
     });
     setImagePreview(p.imagePath || '');
     setShowModal(true);
@@ -589,6 +590,23 @@ const ProductManagement = () => {
                   <label className="block text-sm font-medium text-foreground mb-1.5">Expiry Date</label>
                   <input type="date" value={formData.expiryDate || ''} onChange={(e) => setFormData((p) => ({ ...p, expiryDate: e.target.value }))} className="input-field" />
                 </div>
+              </div>
+
+              {/* HSN/SAC Code */}
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1.5">
+                  HSN / SAC Code
+                  <span className="text-xs text-muted-foreground ml-2">(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={formData.hsnCode || ''}
+                  onChange={(e) => setFormData((p) => ({ ...p, hsnCode: e.target.value }))}
+                  placeholder="e.g. 9506, 8471"
+                  maxLength={20}
+                  className="input-field"
+                />
+                <p className="text-xs text-muted-foreground mt-1">HSN (goods) or SAC (services) code for GST invoices</p>
               </div>
 
               {/* Description */}

@@ -23,6 +23,7 @@ const InvoiceManagement = () => {
   const { invoices, loading, deleteInvoice, markAsSent } = useInvoices();
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [paymentStatusFilter, setPaymentStatusFilter] = useState<string>('ALL');
+  const [documentTypeFilter, setDocumentTypeFilter] = useState<string>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [deletingInvoiceId, setDeletingInvoiceId] = useState<number | null>(null);
@@ -30,7 +31,7 @@ const InvoiceManagement = () => {
   const [paymentForm, setPaymentForm] = useState({ paymentDate: new Date().toISOString().split('T')[0], paymentAmount: '', paymentMethod: 'CASH', paymentReference: '', notes: '' });
   const [paymentSaving, setPaymentSaving] = useState(false);
 
-  React.useEffect(() => { setCurrentPage(1); }, [searchTerm, statusFilter, paymentStatusFilter]);
+  React.useEffect(() => { setCurrentPage(1); }, [searchTerm, statusFilter, paymentStatusFilter, documentTypeFilter]);
 
   // Filter invoices
   const filteredInvoices = useMemo(() => {
@@ -38,13 +39,15 @@ const InvoiceManagement = () => {
       const matchesStatus = statusFilter === 'ALL' || invoice.status === statusFilter;
       const matchesPaymentStatus =
         paymentStatusFilter === 'ALL' || invoice.paymentStatus === paymentStatusFilter;
+      const matchesDocType =
+        documentTypeFilter === 'ALL' || (invoice.documentType || 'INVOICE') === documentTypeFilter;
       const matchesSearch =
         invoice.invoiceNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
         invoice.customerName.toLowerCase().includes(searchTerm.toLowerCase());
 
-      return matchesStatus && matchesPaymentStatus && matchesSearch;
+      return matchesStatus && matchesPaymentStatus && matchesDocType && matchesSearch;
     });
-  }, [invoices, statusFilter, paymentStatusFilter, searchTerm]);
+  }, [invoices, statusFilter, paymentStatusFilter, documentTypeFilter, searchTerm]);
 
   const totalPages = Math.ceil(filteredInvoices.length / ITEMS_PER_PAGE);
   const { sortedData: sortedInvoices, sort, handleSort } = useSortable(filteredInvoices);
@@ -218,6 +221,15 @@ const InvoiceManagement = () => {
               <option value="PARTIAL">Partially Paid</option>
               <option value="PAID">Paid</option>
             </select>
+            <select
+              value={documentTypeFilter}
+              onChange={(e) => setDocumentTypeFilter(e.target.value)}
+              className="input-field flex-1"
+            >
+              <option value="ALL">All Document Types</option>
+              <option value="INVOICE">Invoice</option>
+              <option value="PROFORMA_INVOICE">Proforma Invoice</option>
+            </select>
           </div>
         </div>
 
@@ -240,6 +252,7 @@ const InvoiceManagement = () => {
                   <thead>
                     <tr className="table-header">
                       <SortableHeader label="Invoice #" sortKey="invoiceNumber" sort={sort} onSort={handleSort} />
+                      <th className="px-6 py-4 text-left">Type</th>
                       <th className="px-6 py-4 text-left">Customer</th>
                       <th className="px-6 py-4 text-left">Amount</th>
                       <th className="px-6 py-4 text-left">Status</th>
@@ -253,6 +266,17 @@ const InvoiceManagement = () => {
                       <tr key={invoice.id} className="table-row">
                         <td className="px-6 py-4">
                           <span className="font-semibold text-foreground">{invoice.invoiceNumber}</span>
+                        </td>
+                        <td className="px-6 py-4">
+                          {(invoice.documentType || 'INVOICE') === 'PROFORMA_INVOICE' ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-800">
+                              Proforma
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-800">
+                              Invoice
+                            </span>
+                          )}
                         </td>
                         <td className="px-6 py-4">
                           <span className="text-foreground">{invoice.customerName}</span>

@@ -13,6 +13,7 @@ interface Product {
   discount: number;
   taxType: string;
   gst: number;
+  hsnCode?: string;
   expiryDate: string;
   description: string;
   image?: string;
@@ -52,6 +53,7 @@ const mapAPIProductToProduct = (apiProduct: APIProduct): Product => ({
   discount: apiProduct.discountPercentage,
   taxType: apiProduct.taxType,
   gst: apiProduct.taxPercentage,
+  hsnCode: apiProduct.hsnCode,
   expiryDate: apiProduct.expiryDate,
   description: apiProduct.description || '',
   image: apiProduct.imagePath,
@@ -75,6 +77,7 @@ const mapProductToAPIRequest = (product: Omit<Product, 'id'> | Partial<Product>)
   discountPercentage: product.discount || 0,
   taxType: product.taxType || 'GST',
   taxPercentage: product.gst || 0,
+  hsnCode: product.hsnCode,
   expiryDate: product.expiryDate,
   imagePath: product.image,
   companyId: product.companyId ? Number(product.companyId) : undefined,
