@@ -110,14 +110,18 @@ const MB   = 15;           // bottom safe area — never draw below PH-MB
 const CW   = PW - ML - MR; // 190 mm
 
 // Table columns — must sum to CW (190)
-const C_SR   =  9;
-const C_IMG  = 28;
-const C_DET  = 79;   // product details (name + desc)
-const C_MRP  = 22;
-const C_BEST = 22;
-const C_QTY  = 12;
-const C_AMT  = 18;
-// sum: 9+28+79+22+22+12+18 = 190 ✓
+// New layout: Sr | Img | Det | HSN | Unit Price | Qty | Disc | Taxable | Tax% | Total
+const C_SR   =  9;   // Sr.
+const C_IMG  = 26;   // Image
+const C_DET  = 52;   // Product Details
+const C_HSN  = 13;   // HSN/SAC
+const C_MRP  = 19;   // Unit Price
+const C_QTY  = 10;   // Qty
+const C_DISC = 17;   // Discount (₹)
+const C_TAX2 = 20;   // Taxable amount
+const C_TAX  = 11;   // Tax %
+const C_AMT  = 13;   // Total
+// sum: 9+26+52+13+19+10+17+20+11+13 = 190 ✓
 
 const TH_H     =  8;    // table header height
 const IMG_SIZE = 22;    // image cell image size (mm)
@@ -164,7 +168,7 @@ function fmtDate(d?: string) {
 }
 
 function fmtINR(n: number) {
-  return 'Rs. ' + new Intl.NumberFormat('en-IN').format(Math.round(n));
+  return new Intl.NumberFormat('en-IN').format(Math.round(n));
 }
 
 const _ones = ['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine',
@@ -220,14 +224,12 @@ function calcRowHeight(
   const cLines = (pdf.splitTextToSize(companyName || '', detW) as string[]).length;
   const nLines = (pdf.splitTextToSize(name || '—', detW) as string[]).length;
   const dLines = desc ? (pdf.splitTextToSize(desc, detW) as string[]).length : 0;
-  const hsnH   = hsnSacCode ? LINE_DESC + 1 : 0;
 
   const textH = PAD
     + cLines * LINE_BODY
     + 1
     + nLines * LINE_BODY
     + (dLines ? 1.5 + dLines * LINE_DESC : 0)
-    + hsnH
     + PAD;
 
   const imgH = hasImage ? IMG_SIZE + PAD * 2 : 0;
@@ -247,13 +249,16 @@ function drawTableHeader(pdf: any, y: number, primary: [number,number,number]): 
   st(pdf, 255, 255, 255);
 
   const cols = [
-    { lbl:'Sr.',            x: ML,                                       w: C_SR,   al:'center' },
-    { lbl:'Image',          x: ML+C_SR,                                  w: C_IMG,  al:'center' },
-    { lbl:'Product Details',x: ML+C_SR+C_IMG,                            w: C_DET,  al:'left'   },
-    { lbl:'M.R.P',          x: ML+C_SR+C_IMG+C_DET,                      w: C_MRP,  al:'right'  },
-    { lbl:'Best Price',     x: ML+C_SR+C_IMG+C_DET+C_MRP,               w: C_BEST, al:'right'  },
-    { lbl:'Qty',            x: ML+C_SR+C_IMG+C_DET+C_MRP+C_BEST,        w: C_QTY,  al:'center' },
-    { lbl:'Amount',         x: ML+C_SR+C_IMG+C_DET+C_MRP+C_BEST+C_QTY, w: C_AMT,  al:'right'  },
+    { lbl:'Sr.',             x: ML,                                                w: C_SR,   al:'center' },
+    { lbl:'Image',           x: ML+C_SR,                                           w: C_IMG,  al:'center' },
+    { lbl:'Product Details', x: ML+C_SR+C_IMG,                                     w: C_DET,  al:'left'   },
+    { lbl:'HSN',             x: ML+C_SR+C_IMG+C_DET,                               w: C_HSN,  al:'center' },
+    { lbl:'Unit Price (Rs.)',x: ML+C_SR+C_IMG+C_DET+C_HSN,                         w: C_MRP,  al:'center'  },
+    { lbl:'Qty',             x: ML+C_SR+C_IMG+C_DET+C_HSN+C_MRP,                   w: C_QTY,  al:'center' },
+    { lbl:'Disc. (Rs.)',     x: ML+C_SR+C_IMG+C_DET+C_HSN+C_MRP+C_QTY,             w: C_DISC, al:'right'  },
+    { lbl:'Taxable (Rs.)',   x: ML+C_SR+C_IMG+C_DET+C_HSN+C_MRP+C_QTY+C_DISC,      w: C_TAX2, al:'right'  },
+    { lbl:'GST %',           x: ML+C_SR+C_IMG+C_DET+C_HSN+C_MRP+C_QTY+C_DISC+C_TAX2, w: C_TAX, al:'center' },
+    { lbl:'Total (Rs.)',     x: ML+C_SR+C_IMG+C_DET+C_HSN+C_MRP+C_QTY+C_DISC+C_TAX2+C_TAX, w: C_AMT, al:'center' },
   ] as const;
 
   for (const c of cols) {
@@ -291,7 +296,9 @@ function drawProductRow(
   companyName: string,
   img: { data: string; fmt: 'JPEG'|'PNG' } | null,
   price: number,
-  bestPrice: number,
+  discValue: number,
+  taxableVal: number,
+  tax: number,
   qty: number,
   total: number,
   primary: [number,number,number],
@@ -301,16 +308,16 @@ function drawProductRow(
   sf(pdf, 255, 255, 255);
   pdf.rect(ML, y, CW, rowH, 'F');
 
-  // Horizontal row separator — solid visible line
+  // Horizontal row separator
   sd(pdf, 190, 190, 190);
   pdf.setLineWidth(0.3);
   pdf.line(ML, y + rowH, ML + CW, y + rowH);
 
-  // Vertical column dividers — slightly lighter than row separator
+  // Vertical column dividers — new order: Sr|Img|Det|HSN|MRP|Qty|Disc|Tax2|Tax|Amt
   sd(pdf, 210, 210, 210);
   pdf.setLineWidth(0.2);
   let vx = ML + C_SR;
-  for (const w of [C_IMG, C_DET, C_MRP, C_BEST, C_QTY]) {
+  for (const w of [C_IMG, C_DET, C_HSN, C_MRP, C_QTY, C_DISC, C_TAX2, C_TAX]) {
     pdf.line(vx, y, vx, y + rowH);
     vx += w;
   }
@@ -324,7 +331,7 @@ function drawProductRow(
   st(pdf, 55, 65, 81);
   pdf.text(String(srNo), ML + C_SR / 2, midY, { align: 'center' });
 
-  // Image — centred in image cell, NO product name below it
+  // Image
   const imgX = ML + C_SR + (C_IMG - IMG_SIZE) / 2;
   const imgY = y + (rowH - IMG_SIZE) / 2;
   if (img) {
@@ -334,29 +341,24 @@ function drawProductRow(
     drawImgPlaceholder(pdf, imgX, y, rowH);
   }
 
-  // Product Details column: Company Name + Product Name + Description
+  // Product Details: Company Name + Product Name + Description
   const detX = ML + C_SR + C_IMG + PAD;
   const detW = C_DET - PAD * 2;
   let ty = y + PAD + 3;
 
-  // Company Name (bold, primary colour)
   pdf.setFontSize(7.5);
   pdf.setFont('helvetica', 'bold');
   st(pdf, ...primary);
   const cLines: string[] = pdf.splitTextToSize(companyName || '', detW);
   for (const l of cLines) { pdf.text(l, detX, ty); ty += LINE_BODY; }
-
-  // Gap between company and product name
   ty += 1;
 
-  // Product Name (bold, dark)
   pdf.setFontSize(7.5);
   pdf.setFont('helvetica', 'bold');
   st(pdf, 17, 24, 39);
   const nLines: string[] = pdf.splitTextToSize(name || '—', detW);
   for (const l of nLines) { pdf.text(l, detX, ty); ty += LINE_BODY; }
 
-  // Description (normal, grey)
   if (desc) {
     ty += 1.5;
     pdf.setFontSize(6.8);
@@ -366,36 +368,63 @@ function drawProductRow(
     for (const l of dLines) { pdf.text(l, detX, ty); ty += LINE_DESC; }
   }
 
-  // HSN/SAC code — small tag below description
-  if (hsnSacCode) {
-    ty += 1;
-    pdf.setFontSize(6);
-    pdf.setFont('helvetica', 'normal');
-    st(pdf, 150, 100, 30);
-    pdf.text(`HSN/SAC: ${hsnSacCode}`, detX, ty);
+  // HSN/SAC — auto-shrink font if code is too wide for the column
+  const hsnColW = C_HSN - PAD * 2;
+  let hsnFontSize = 6.5;
+  pdf.setFontSize(hsnFontSize);
+  pdf.setFont('helvetica', 'normal');
+  while (hsnFontSize > 5 && pdf.getTextWidth(hsnSacCode || '—') > hsnColW) {
+    hsnFontSize -= 0.5;
+    pdf.setFontSize(hsnFontSize);
   }
+  st(pdf, 100, 80, 30);
+  pdf.text(hsnSacCode || '—',
+    ML + C_SR + C_IMG + C_DET + C_HSN / 2, midY, { align: 'center' });
 
-  // MRP
-  pdf.setFontSize(7.5);
+  // Unit Price
+  pdf.setFontSize(7);
   pdf.setFont('helvetica', 'normal');
   st(pdf, 107, 114, 128);
-  pdf.text(new Intl.NumberFormat('en-IN').format(price),
-    ML + C_SR + C_IMG + C_DET + C_MRP - PAD, midY, { align: 'right' });
-
-  // Best Price
-  pdf.setFont('helvetica', 'bold');
-  st(pdf, 17, 24, 39);
-  pdf.text(new Intl.NumberFormat('en-IN').format(bestPrice),
-    ML + C_SR + C_IMG + C_DET + C_MRP + C_BEST - PAD, midY, { align: 'right' });
+  pdf.text(new Intl.NumberFormat('en-IN').format(Math.round(price)),
+    ML + C_SR + C_IMG + C_DET + C_HSN + C_MRP - PAD, midY, { align: 'right' });
 
   // Qty
+  pdf.setFontSize(7.5);
   pdf.setFont('helvetica', 'bold');
   st(pdf, 17, 24, 39);
   pdf.text(String(qty),
-    ML + C_SR + C_IMG + C_DET + C_MRP + C_BEST + C_QTY / 2, midY, { align: 'center' });
+    ML + C_SR + C_IMG + C_DET + C_HSN + C_MRP + C_QTY / 2, midY, { align: 'center' });
 
-  // Amount
-  pdf.setFontSize(8.5);
+  // Discount (total row) — red if > 0, dash otherwise
+  pdf.setFontSize(7);
+  if (discValue > 0) {
+    st(pdf, 220, 38, 38);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text(new Intl.NumberFormat('en-IN').format(Math.round(discValue)),
+      ML + C_SR + C_IMG + C_DET + C_HSN + C_MRP + C_QTY + C_DISC - PAD, midY, { align: 'right' });
+  } else {
+    st(pdf, 150, 150, 150);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text('—',
+      ML + C_SR + C_IMG + C_DET + C_HSN + C_MRP + C_QTY + C_DISC / 2, midY, { align: 'center' });
+  }
+
+  // Taxable = base - discValue
+  pdf.setFontSize(7.5);
+  pdf.setFont('helvetica', 'bold');
+  st(pdf, 17, 24, 39);
+  pdf.text(new Intl.NumberFormat('en-IN').format(Math.round(taxableVal)),
+    ML + C_SR + C_IMG + C_DET + C_HSN + C_MRP + C_QTY + C_DISC + C_TAX2 - PAD, midY, { align: 'right' });
+
+  // GST %
+  pdf.setFontSize(6.5);
+  pdf.setFont('helvetica', 'normal');
+  st(pdf, 107, 114, 128);
+  pdf.text(tax > 0 ? `${tax}%` : '—',
+    ML + C_SR + C_IMG + C_DET + C_HSN + C_MRP + C_QTY + C_DISC + C_TAX2 + C_TAX / 2, midY, { align: 'center' });
+
+  // Total
+  pdf.setFontSize(8);
   pdf.setFont('helvetica', 'bold');
   st(pdf, ...primary);
   pdf.text(new Intl.NumberFormat('en-IN').format(Math.round(total)),
@@ -607,7 +636,7 @@ async function drawCompactHeader(
 
   if (q.deliveryDate) {
     st(pdf, 107, 114, 128);
-    pdf.text('Delivery:', dx, secY + 22);
+    pdf.text('Expected Delivery Date:', dx, secY + 22);
     st(pdf, 17, 24, 39);
     pdf.text(fmtDate(q.deliveryDate), dx + rw, secY + 22, { align: 'right' });
   }
@@ -776,10 +805,10 @@ function drawSummaryAndFooter(
 
   // ── RIGHT: Totals rows ──────────────────────────────────────────────────
   const totRows: { lbl: string; val: number; bold?: boolean }[] = [
-    { lbl: 'Total',        val: q.subtotal },
-    { lbl: 'Discount (-)', val: q.totalDiscount },
-    { lbl: 'Sub Total',    val: q.subtotal - q.totalDiscount, bold: true },
-    { lbl: 'Tax Amount',   val: q.totalGst },
+    { lbl: 'Total (Rs.).',        val: q.subtotal },
+    { lbl: 'Discount (Rs.).', val: q.totalDiscount },
+    { lbl: 'Sub Total (Rs.).',    val: q.subtotal - q.totalDiscount, bold: true },
+    { lbl: 'Tax Amount (Rs.).',   val: q.totalGst },
   ];
 
   if (!hideServices) {
@@ -808,7 +837,7 @@ function drawSummaryAndFooter(
   pdf.setFontSize(10);
   pdf.setFont('helvetica', 'bold');
   st(pdf, 255, 255, 255);
-  pdf.text('Final Total', rightX + 2, ry + 7);
+  pdf.text('Final Total (Rs.)', rightX + 2, ry + 7);
   pdf.text(':', rightX + rightW/2, ry + 7, { align: 'center' });
   pdf.text(fmtINR(grandTotal), rightX + rightW - 2, ry + 7, { align: 'right' });
   ry += 10;
@@ -942,13 +971,11 @@ export async function generateQuotationPdf(
     const discValue = flatAmt > 0 ? flatAmt : base * disc / 100;
     const afterDisc = base - discValue;
     const total     = afterDisc * (1 + tax/100);
-    // Best Price per unit after discount
-    const bestPrice = flatAmt > 0 ? price - flatAmt / item.quantity : price * (1 - disc/100);
 
     drawProductRow(
       pdf, y, rowH,
       i + 1, name, desc, compName,
-      itemImgs[i], price, bestPrice, item.quantity, total,
+      itemImgs[i], price, discValue, afterDisc, tax, item.quantity, total,
       primary,
       item.hsnSacCode,
     );

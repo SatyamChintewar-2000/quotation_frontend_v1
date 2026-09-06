@@ -7,7 +7,7 @@ interface InvoiceContextType {
   invoices: Invoice[];
   loading: boolean;
   error: string | null;
-  fetchInvoices: () => Promise<void>;
+  fetchInvoices: (force?: boolean) => Promise<void>;
   fetchInvoiceById: (id: number) => Promise<Invoice | null>;
   fetchInvoicesByQuotation: (quotationId: number) => Promise<Invoice[]>;
   fetchInvoicesByStatus: (status: string) => Promise<Invoice[]>;

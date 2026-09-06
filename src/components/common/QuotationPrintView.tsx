@@ -80,7 +80,7 @@ const fmtDate = (d?: string) => {
 };
 
 const fmtINR = (n: number) =>
-  'Rs. ' + new Intl.NumberFormat('en-IN').format(Math.round(n));
+  '₹' + new Intl.NumberFormat('en-IN').format(Math.round(n));
 
 const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven',
   'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen',
@@ -350,7 +350,7 @@ const QuotationPrintView = React.forwardRef<HTMLDivElement, Props>(({ quotation,
                 </tr>
                 {quotation.deliveryDate && (
                   <tr>
-                    <td style={{ color: TEXT_GRAY, paddingRight: '16px', fontWeight: '700', whiteSpace: 'nowrap', paddingBottom: '10px' }}>Delivery Date:</td>
+                    <td style={{ color: TEXT_GRAY, paddingRight: '16px', fontWeight: '700', whiteSpace: 'nowrap', paddingBottom: '10px' }}>Expected Delivery Date:</td>
                     <td style={{ fontWeight: '800', color: TEXT_DARK, paddingBottom: '10px' }}>{delivDate}</td>
                   </tr>
                 )}
@@ -387,13 +387,16 @@ const QuotationPrintView = React.forwardRef<HTMLDivElement, Props>(({ quotation,
             <thead>
               <tr style={{ background: PRIMARY_COLOR }}>
                 {[
-                  { label: 'Sr.No.',         w: '44px',  align: 'center' as const },
-                  { label: 'Product Image',  w: '120px', align: 'center' as const },
-                  { label: 'Product Details',w: 'auto',  align: 'left'   as const },
-                  { label: 'M.R.P',          w: '80px',  align: 'right'  as const },
-                  { label: 'Best Price',     w: '80px',  align: 'right'  as const },
-                  { label: 'Qty',            w: '44px',  align: 'center' as const },
-                  { label: 'Amount',         w: '90px',  align: 'right'  as const },
+                  { label: 'Sr.No.',            w: '44px',  align: 'center' as const },
+                  { label: 'Product Image',     w: '110px', align: 'center' as const },
+                  { label: 'Product Details',   w: 'auto',  align: 'left'   as const },
+                  { label: 'HSN',           w: '65px',  align: 'center' as const },
+                  { label: 'Unit Price (Rs.)',   w: '72px',  align: 'right'  as const },
+                  { label: 'Qty',               w: '40px',  align: 'center' as const },
+                  { label: 'Disc (Rs.)',         w: '72px',  align: 'right'  as const },
+                  { label: 'Taxable (Rs.)',      w: '80px',  align: 'right'  as const },
+                  { label: 'GST %',             w: '44px',  align: 'center' as const },
+                  { label: 'Total (Rs.)',        w: '80px',  align: 'right'  as const },
                 ].map((col, i, arr) => (
                   <th
                     key={col.label}
@@ -503,22 +506,37 @@ const QuotationPrintView = React.forwardRef<HTMLDivElement, Props>(({ quotation,
                       )}
                     </td>
 
-                    {/* MRP */}
+                    {/* HSN/SAC */}
+                    <td style={{ padding: '14px 8px', textAlign: 'center', verticalAlign: 'middle', color: TEXT_GRAY, fontSize: '10px', fontWeight: '600', borderRight: `1px solid ${BORDER_COLOR}`, width: '60px' }}>
+                      {(item as any).hsnSacCode || '—'}
+                    </td>
+
+                    {/* Unit Price */}
                     <td style={{ padding: '14px 10px', textAlign: 'right', verticalAlign: 'middle', color: TEXT_GRAY, fontWeight: '700', fontSize: '11px', borderRight: `1px solid ${BORDER_COLOR}` }}>
                       {new Intl.NumberFormat('en-IN').format(price)}
                     </td>
 
-                    {/* Best Price */}
-                    <td style={{ padding: '14px 10px', textAlign: 'right', verticalAlign: 'middle', color: TEXT_DARK, fontWeight: '800', fontSize: '11px', borderRight: `1px solid ${BORDER_COLOR}` }}>
-                      {new Intl.NumberFormat('en-IN').format(bestPrice)}
-                    </td>
-
                     {/* Qty */}
-                    <td style={{ padding: '14px 10px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '800', color: TEXT_DARK, fontSize: '11px', borderRight: `1px solid ${BORDER_COLOR}` }}>
+                    <td style={{ padding: '14px 10px', textAlign: 'center', verticalAlign: 'middle', fontWeight: '800', color: TEXT_DARK, fontSize: '11px', borderRight: `1px solid ${BORDER_COLOR}`, width: '40px' }}>
                       {item.quantity}
                     </td>
 
-                    {/* Amount */}
+                    {/* Discount in ₹ — total row discount */}
+                    <td style={{ padding: '14px 10px', textAlign: 'right', verticalAlign: 'middle', color: discValue > 0 ? '#dc2626' : TEXT_GRAY, fontWeight: '700', fontSize: '11px', borderRight: `1px solid ${BORDER_COLOR}` }}>
+                      {discValue > 0 ? `-${new Intl.NumberFormat('en-IN').format(Math.round(discValue))}` : '—'}
+                    </td>
+
+                    {/* Taxable = base - discValue */}
+                    <td style={{ padding: '14px 10px', textAlign: 'right', verticalAlign: 'middle', fontWeight: '800', color: TEXT_DARK, fontSize: '11px', borderRight: `1px solid ${BORDER_COLOR}` }}>
+                      {new Intl.NumberFormat('en-IN').format(Math.round(afterDisc))}
+                    </td>
+
+                    {/* GST % */}
+                    <td style={{ padding: '14px 10px', textAlign: 'center', verticalAlign: 'middle', color: TEXT_GRAY, fontWeight: '600', fontSize: '10px', borderRight: `1px solid ${BORDER_COLOR}` }}>
+                      {tax > 0 ? `${tax}%` : '—'}
+                    </td>
+
+                    {/* Total */}
                     <td style={{ padding: '14px 10px', textAlign: 'right', fontWeight: '900', verticalAlign: 'middle', color: PRIMARY_COLOR, fontSize: '13px' }}>
                       {new Intl.NumberFormat('en-IN').format(Math.round(total))}
                     </td>

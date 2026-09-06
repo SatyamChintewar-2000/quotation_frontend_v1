@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { TopBar } from '@/components/layout/TopBar';
 import { useAuth } from '@/contexts/AuthContext';
 import { useQuotations } from '@/contexts/QuotationContext';
@@ -110,10 +110,10 @@ const QuotationHistory = () => {
         // productNameSnapshot = name at time of quoting (may be corrupted in old records)
         // QuotationPrintView reads productNameSnapshot first, then productName
         // So we set productNameSnapshot to the best available name
-        productName: item.productName || item.productNameSnapshot || 'â€”',
+        productName: item.productName || item.productNameSnapshot || '—',
         productNameSnapshot: item.productNameSnapshot && item.productNameSnapshot !== item.productName
           ? item.productNameSnapshot  // keep snapshot if it differs (genuine historical data)
-          : item.productName || item.productNameSnapshot || 'â€”', // prefer current name
+          : item.productName || item.productNameSnapshot || '—', // prefer current name
         productDescription: item.productDescriptionSnapshot || item.productDescription || '',
         // For image: try snapshot first, then current product image
         imagePathSnapshot: item.imagePathSnapshot || item.imagePath || '',
@@ -147,7 +147,7 @@ const QuotationHistory = () => {
   };
 
   // Client-side filter applied on the current page of server-returned records
-  // (search, date range â€” these filter the already-loaded page)
+  // (search, date range — these filter the already-loaded page)
   const filteredQuotations = userQuotations.filter((q: any) => {
     if (searchTerm) {
       const t = searchTerm.toLowerCase();
@@ -250,7 +250,7 @@ const QuotationHistory = () => {
     }
   };
 
-  // Download PDF â€” uses pure jsPDF programmatic renderer (no html2canvas).
+  // Download PDF — uses pure jsPDF programmatic renderer (no html2canvas).
   // Delivers enterprise-grade output: repeated headers, complete borders,
   // proper row-level page breaks, no content clipping.
   const downloadPDF = async (quotation?: any) => {
@@ -261,10 +261,10 @@ const QuotationHistory = () => {
       setDownloading(true);
 
       // If called from the row button and the modal is NOT open,
-      // open the view modal first â€” load full detail including images
+      // open the view modal first — load full detail including images
       if (quotation && (!viewingQuotation || viewingQuotation.id !== quotation.id)) {
         handleView(quotation);
-        toast.info('Opening view â€” click "Download PDF" to generate');
+        toast.info('Opening view — click "Download PDF" to generate');
         setDownloading(false);
         return;
       }
@@ -320,7 +320,7 @@ const QuotationHistory = () => {
     }
   };
 
-  // Download CBM Excel (3-sheet) â€” values in Master, formulas in Sheet2
+  // Download CBM Excel (3-sheet) — values in Master, formulas in Sheet2
   const downloadCbmExcel = async () => {
     if (!viewingQuotation || !cbmExcelCompany) return;
     try {
@@ -328,12 +328,21 @@ const QuotationHistory = () => {
       const q  = viewingQuotation;
       const co = cbmExcelCompany;
 
-      const exchRate    = Number(q.usdExchangeRateSnapshot ?? co.usdExchangeRate) || 83;
-      const ratePerCbm  = Number(q.ratePerCbmSnapshot      ?? co.ratePerCbm)      || 0;
+      // exchRate: use current company setting for Excel G8 (user-editable, should start from current rate)
+      // ratePerCbm: use snapshot if available (locked at quotation time), else current
+      const exchRate    = Number(co.usdExchangeRate) || Number(q.usdExchangeRateSnapshot) || 83;
+      const ratePerCbm  = Number(q.ratePerCbmSnapshot ?? co.ratePerCbm) || 0;
       const clearPerCbm = Number(co.clearancePerCbm) || 1667;
       const allServices = (q.services || []) as any[];
       const installCost = allServices
         .filter((s: any) => /install/i.test(s.serviceName || ''))
+        .reduce((sum: number, s: any) => {
+          const p = Number(s.servicePrice) || 0;
+          const t = Number(s.serviceTax) || 0;
+          return sum + p + p * t / 100;
+        }, 0);
+      const shippingCost = allServices
+        .filter((s: any) => /ship|freight|logistic/i.test(s.serviceName || ''))
         .reduce((sum: number, s: any) => {
           const p = Number(s.servicePrice) || 0;
           const t = Number(s.serviceTax) || 0;
@@ -347,7 +356,7 @@ const QuotationHistory = () => {
       const discPct  = (q.items as any[]).length > 0
         ? Number((q.items as any[])[0].discountPercentage ?? 0) / 100 : 0;
 
-      // â”€â”€ SHEET 1: Master Feb22 â€” all calculated values (no cross-sheet formulas) â”€â”€
+      // ── SHEET 1: Master Feb22 — all calculated values (no cross-sheet formulas) ──
       const s1: any[][] = [];
       s1.push(['', compName]);                                        // row 1
       s1.push(['', co.address || '']);                                // row 2
@@ -401,13 +410,13 @@ const QuotationHistory = () => {
       ];
       XLSX.utils.book_append_sheet(wb, ws1, 'Master Feb22');
 
-      // â”€â”€ SHEET 2: Cost Analysis â€” values + formulas for user to change rates â”€â”€
+      // ── SHEET 2: Cost Analysis — values + formulas for user to change rates ──
       // Put named values in G column so formulas are live:
       //   G7 = Rate/CBM (user can change)
       //   G8 = Exchange Rate (user can change)
       //   G9 = Total CBM (linked to value)
       //   B2 = Total INR (value)
-      // Then H column uses G column references â€” fully recalculates when user changes G7/G8
+      // Then H column uses G column references — fully recalculates when user changes G7/G8
 
       const equipCost = await (async () => {
         // Try to load products to get purchase prices (same logic as NewQuotation panel)
@@ -428,36 +437,61 @@ const QuotationHistory = () => {
       })();
       const freightUsd  = totCBM * ratePerCbm;
       const freightInr  = freightUsd * exchRate;
-      const totalCost   = equipCost + freightInr;
-      const gstCost     = gst18;  // selling GST (same as B3 in Sheet2)
+      const totalServiceCost = installCost + shippingCost;
+      const totalCost   = equipCost + freightInr + totalServiceCost;
+      const gstCost     = gst18;
       const clearCost   = totCBM * clearPerCbm;
-      // installCost = Today Cost (K9) = service-based installation + shipping
-      const grandCost   = totalCost + gstCost + clearCost + installCost;
+      const grandCost   = totalCost + gstCost + clearCost;
       const profit      = grandT - grandCost;
       const profitPct   = grandT > 0 ? (profit / grandT) * 100 : 0;
-      const instPerCbm  = totCBM > 0 ? Math.round(installCost / totCBM) : 1167;
+      const instPerCbm  = totCBM > 0 ? Math.round(totalServiceCost / totCBM) : 1167;
+
+      // Cross-sheet row references into "Master Feb22":
+      // 8 header rows + N item rows + 1 blank = totals row
+      const itemCount   = (q.items as any[]).length;
+      const totRow      = 8 + itemCount + 2;  // +1 for blank row, +1 for 1-indexed
+      const s1TotINR    = `'Master Feb22'!J${totRow}`;        // col J = Total INR
+      const s1GstINR    = `'Master Feb22'!J${totRow + 1}`;    // col J = GST row
+      const s1GrandINR  = `'Master Feb22'!J${totRow + 2}`;    // col J = Grand Total row
+      const s1TotUSD    = `'Master Feb22'!M${totRow}`;         // col M = Total USD
+      const s1TotCBM    = `'Master Feb22'!O${totRow}`;         // col O = Total CBM
 
       const s2: any[][] = [
+        // Row 1
         ['Bill details', '', '', '', '', '', '', '', '', '', ''],
-        ['Total',       totINR,  '', '', '', '', '', '', '', '', ''],
-        ['GST 18%',     { f: 'B2*0.18' }, '', '', '', '', '', '', '', '', ''],
-        ['Grand Total', { f: 'B2+B3' },   '', '', '', '', '', '', '', '', ''],
+        // Row 2 — B2 = Total from Sheet1
+        ['Total',        { f: s1TotINR },   '', '', '', '', '', '', '', '', ''],
+        // Row 3 — B3 = GST from Sheet1 (not hardcoded 0.18 — rate may change)
+        ['GST 18%',      { f: s1GstINR },   '', '', '', '', '', '', '', '', ''],
+        // Row 4 — B4 = Grand Total from Sheet1
+        ['Grand Total',  { f: s1GrandINR }, '', '', '', '', '', '', '', '', ''],
+        // Row 5 — blank
         [],
-        ['', '', '', 'total USD', totUSD, 'total CBM', totCBM, '', '', '', ''],
-        ['', '', '', '', '', '', ratePerCbm, 'Rate/CBM', '', '', ''],
-        ['', '', '', '', '', '', exchRate,   equipCost,          'Equipment Cost', '', ''],
-        ['', '', '', '', '', '', freightUsd, { f: 'G9*G8' }, 'Shipping Cost',  'Today Cost', installCost],
-        ['', '', '', '', '', '', '',          { f: 'H8+H9' }, 'Total', 'Cost/CBM', ratePerCbm],
-        ['', '', '', '', '', '', '',          { f: 'B3' },           'GST (selling)', 'Installation per CBM', instPerCbm],
-        ['', '', '', '', '', '', '',          { f: `G6*${clearPerCbm}` }, 'Clearance', 'Clearance per cbm', clearPerCbm],
-        ['', '', '', '', '', '', '',          '',           'Transportation', '', ''],
-        ['', '', '', '', '', '', '',          installCost,  'Installation', '', ''],
-        ['', '', '', '', '', '', '',          { f: 'H10+H11+H12+H14+K9' }, 'Total', '', ''],
-        ['', '', '', '', '', 'PRFT', '',      { f: 'B4-H15' }, '', '', ''],
-        ['', '', '', '', '', '%',    '',      { f: 'H16/B4*100' }, '', '', ''],
+        // Row 6 — D6="total USD", E6=Total USD, F6="total CBM", G6=Total CBM
+        ['', '', '', 'total USD', { f: s1TotUSD }, 'total CBM', { f: s1TotCBM }, '', '', '', ''],
+        // Row 7 — G7 = K10 (Rate/CBM, links to cost column)
+        ['', '', '', '', '', '', { f: 'K10' }, 'Rate/CBM', '', '', ''],
+        // Row 8 — G8 = exchRate (user editable), H8 = E6*G8 (Equipment Cost)
+        ['', '', '', '', '', '', exchRate, { f: 'E6*G8' }, 'Equipment Cost', '', ''],
+        // Row 9 — G9 = G6*K10 (freight USD), H9 = G9*G8 (Shipping Cost INR), K9 = Today Cost (all services)
+        ['', '', '', '', '', '', { f: 'G6*K10' }, { f: 'G9*G8' }, 'Shipping Cost', 'Today Cost', shippingCost],
+        // Row 10 — H10 = SUM(H8:H9), K10 = K9/60 (Cost/CBM)
+        ['', '', '', '', '', '', '', { f: 'SUM(H8:H9)' }, 'Total', 'Cost/ CBM', { f: 'K9/60' }],
+        // Row 11 — H11 = H10*(B3/B2) — GST rate derived from Sheet1, not hardcoded
+        ['', '', '', '', '', '', '', { f: 'H10*(B3/B2)' }, 'GST', 'Installation per CBM', { f: '70000/60' }],
+        // Row 12 — H12 = G6*K12, K12 = 100000/60 (Clearance per cbm)
+        ['', '', '', '', '', '', '', { f: 'G6*K12' }, 'Clearance', 'Clearance per cbm', { f: '100000/60' }],
+        // Row 13 — Transportation (blank value)
+        ['', '', '', '', '', '', '', '', 'Transporatation', '', ''],
+        // Row 14 — H14 = total service cost (installation + shipping), I14="Installation"
+        ['', '', '', '', '', '', '', installCost, 'Installation', '', ''],
+        // Row 15 — H15 = SUM(H10:H14)
+        ['', '', '', '', '', '', '', { f: 'SUM(H10:H14)' }, 'Total', '', ''],
+        // Row 16 — PRFT: H16 = Grand Total from Sheet1 - H15 (Total Cost)
+        ['', '', '', '', '', 'PRFT', '', { f: `${s1GrandINR}-Sheet2!H15` }, '', '', ''],
+        // Row 17 — %: H17 = H16 / Grand Total from Sheet1 * 100
+        ['', '', '', '', '', '%', '', { f: `H16/${s1GrandINR}*100` }, '', '', ''],
       ];
-      // Fix G9 â€” shipping cost USD = total CBM Ã— rate (so formula G9*G8 gives shipping INR)
-      s2[8][6] = { f: 'G6*G7' }; // G9 = total CBM Ã— rate/CBM = freight USD
 
       const ws2 = XLSX.utils.aoa_to_sheet(s2);
       ws2['!cols'] = [
@@ -466,7 +500,7 @@ const QuotationHistory = () => {
       ];
       XLSX.utils.book_append_sheet(wb, ws2, 'Sheet2');
 
-      // â”€â”€ SHEET 3: Series/Discount lookup â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      // ── SHEET 3: Series/Discount lookup ───────────────────────────────────
       const s3: any[][] = [
         ['Series:', 'Discount'],
         ['M05', 0.00], ['FW', 0.01], ['HAM', 0.02], ['T8', 0.03],
@@ -517,8 +551,8 @@ const QuotationHistory = () => {
             <div className="flex-1">
               <h4 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-1">Quotation Workflow Guide</h4>
               <div className="text-xs text-blue-800 dark:text-blue-200 space-y-1">
-                <p><strong>DRAFT:</strong> Click <strong>Edit Items</strong> (âœï¸ blue icon) to modify items/prices</p>
-                <p><strong>GENERATED/SENT/APPROVED:</strong> Cannot edit items (maintains audit trail). Use <strong>Duplicate & Edit</strong> (ðŸ“‹ icon) to create a revision</p>
+                <p><strong>DRAFT:</strong> Click <strong>Edit Items</strong> (✏️ blue icon) to modify items/prices</p>
+                <p><strong>GENERATED/SENT/APPROVED:</strong> Cannot edit items (maintains audit trail). Use <strong>Duplicate & Edit</strong> (📋 icon) to create a revision</p>
                 <p><strong>Duplicate & Edit:</strong> Creates a new quotation with a new number, preserving the original for records</p>
               </div>
             </div>
@@ -528,7 +562,7 @@ const QuotationHistory = () => {
         {/* Table */}
         <div className="bg-card rounded-xl shadow-md border border-border overflow-hidden">
           {(quotationsLoading || (!authLoading && isAuthenticated && quotations.length === 0 && !searchTerm && !fromDate && !toDate)) ? (
-            /* â”€â”€ Skeleton rows for the quotation list table â”€â”€ */
+            /* ── Skeleton rows for the quotation list table ── */
             <div className="animate-pulse">
               <table className="w-full">
                 <thead>
@@ -586,7 +620,7 @@ const QuotationHistory = () => {
                         <td className="px-6 py-4 text-foreground">{q.clientName || q.customerName}</td>
                         <td className="px-6 py-4 text-muted-foreground">{q.items?.length || 0} items</td>
                         <td className="px-6 py-4 text-right font-medium text-foreground">
-                          ₹{new Intl.NumberFormat('en-IN').format(Math.round(q.grandTotal))}
+                          ?{new Intl.NumberFormat('en-IN').format(Math.round(q.grandTotal))}
                         </td>
                         <td className="px-6 py-4"><StatusBadge status={q.status} /></td>
                         <td className="px-6 py-4 text-muted-foreground">
@@ -680,7 +714,7 @@ const QuotationHistory = () => {
             </div>
             <div className="overflow-y-auto flex-1 bg-gray-100 p-4">
               {viewLoading ? (
-                /* â”€â”€ Skeleton loader mimicking the quotation PDF layout â”€â”€ */
+                /* ── Skeleton loader mimicking the quotation PDF layout ── */
                 <div className="mx-auto bg-white rounded shadow-lg p-6 space-y-5 animate-pulse">
                   {/* Company header */}
                   <div className="flex items-start justify-between">

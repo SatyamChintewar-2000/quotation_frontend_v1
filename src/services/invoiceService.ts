@@ -4,12 +4,15 @@ export interface InvoiceItem {
   id?: number;
   invoiceId?: number;
   productId: number;
+  itemType?: 'PRODUCT' | 'SERVICE';   // SERVICE rows have no productId
   productName: string;
   productDescription?: string;
   hsnCode?: string;
+  imagePath?: string;  // product image for proforma PDF
   quantity: number;
   unitPrice: number;
   discountPercentage: number;
+  discountAmount?: number;    // exact flat discount — use for display to avoid % rounding
   taxPercentage: number;
   taxAmount: number;
   itemTotal: number;
@@ -35,6 +38,8 @@ export interface Invoice {
   quotationId: number;
   customerId: number;
   customerName: string;
+  customerPhone?: string;
+  customerEmail?: string;
   companyId: number;
   companyName: string;
   invoiceDate: string;
@@ -48,12 +53,13 @@ export interface Invoice {
   paymentStatus: 'PENDING' | 'PARTIAL' | 'PAID';
   notes?: string;
   termsAndConditions?: string;
-  documentType?: 'INVOICE' | 'PROFORMA_INVOICE';
+  documentType?: 'INVOICE' | 'PROFORMA_INVOICE' | 'TAX_INVOICE';
   gstType?: 'IGST' | 'SGST_CGST';
   customerAddress?: string;
   shippingAddress?: string;
   deliveryDate?: string;
   expiryDate?: string;
+  paymentTerms?: string;
   emailSent: boolean;
   emailSentAt?: string;
   createdBy?: number;
@@ -77,11 +83,12 @@ export interface InvoiceRequest {
   discountPercentage?: number;
   notes?: string;
   termsAndConditions?: string;
-  documentType?: 'INVOICE' | 'PROFORMA_INVOICE';
+  documentType?: 'INVOICE' | 'PROFORMA_INVOICE' | 'TAX_INVOICE';
   gstType?: 'IGST' | 'SGST_CGST';
   shippingAddress?: string;
   deliveryDate?: string;
   expiryDate?: string;
+  paymentTerms?: string;
   items?: InvoiceItem[];
 }
 

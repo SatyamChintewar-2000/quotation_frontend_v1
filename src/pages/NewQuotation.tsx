@@ -13,13 +13,15 @@ import { toast } from 'sonner';
 let _nqCustomerCache: Customer[] | null = null;
 let _nqCustomerCacheTime = 0;
 const CUSTOMER_STALE_MS = 60_000;
+let _nqUidCounter = 0;
 import {
-  FileText, Users, Package, Plus, Minus, Trash2, Save,
+  FileText, Users, Package, Plus, Trash2, Save,
   Calculator, AlertTriangle, FileSignature, ChevronDown,
   Search, X, Wrench, Calendar, User,
 } from 'lucide-react';
 
 interface QuotationItemForm {
+  uid: number;          // insertion-order key — guarantees stable row order in the table
   productId: number;
   productName: string;
   quantity: number;
@@ -38,6 +40,7 @@ interface QuotationItemForm {
 }
 
 interface ServiceForm {
+  serviceType: 'installation' | 'shipping' | 'other';  // predefined type for cost analysis matching
   serviceName: string;
   servicePrice: number;
   serviceTax: number;
@@ -216,6 +219,7 @@ const NewQuotation = () => {
         const discPct = Number(item.discountPercentage || item.discount || 0);
         const mode: 'percent' | 'amount' = discAmt > 0 ? 'amount' : 'percent';
         return {
+          uid: ++_nqUidCounter,
           productId: item.productId,
           productName: item.productName || item.productNameSnapshot || '',
           quantity: item.quantity || 1,
@@ -235,13 +239,20 @@ const NewQuotation = () => {
     
     // Load services
     if (quotation.services && quotation.services.length > 0) {
-      const svcs = quotation.services.map((svc: any) => ({
-        serviceName: svc.serviceName || '',
-        servicePrice: Number(svc.servicePrice || 0),
-        serviceTax: Number(svc.serviceTax || 0),
-        servicePriceInput: String(Number(svc.servicePrice || 0)),
-        serviceTaxInput: String(Number(svc.serviceTax || 0)),
-      }));
+      const svcs = quotation.services.map((svc: any) => {
+        const name = svc.serviceName || '';
+        const type: ServiceForm['serviceType'] = /install/i.test(name) ? 'installation'
+          : /ship|freight|logistic/i.test(name) ? 'shipping'
+          : 'other';
+        return {
+          serviceType: type,
+          serviceName: name,
+          servicePrice: Number(svc.servicePrice || 0),
+          serviceTax: Number(svc.serviceTax || 0),
+          servicePriceInput: String(Number(svc.servicePrice || 0)),
+          serviceTaxInput: String(Number(svc.serviceTax || 0)),
+        };
+      });
       setServices(svcs);
     }
 
@@ -278,6 +289,7 @@ const NewQuotation = () => {
     const product = products.find((p) => p.id === productId);
     if (!product) return;
     setQuotationItems((prev) => [...prev, {
+      uid: ++_nqUidCounter,
       productId: product.id,
       productName: product.productName,
       quantity: 1,
@@ -366,20 +378,28 @@ const NewQuotation = () => {
 
   // Service handlers
   const addService = () => setServices((prev) => [...prev, {
-    serviceName: '', servicePrice: 0, serviceTax: 0,
+    serviceType: 'installation' as const,
+    serviceName: 'Installation Charge',
+    servicePrice: 0, serviceTax: 0,
     servicePriceInput: '0', serviceTaxInput: '0',
   }]);
 
   const updateService = (idx: number, field: keyof ServiceForm, val: string) => {
     setServices((prev) => prev.map((s, i) => {
       if (i !== idx) return s;
+      if (field === 'serviceType') {
+        const type = val as ServiceForm['serviceType'];
+        const name = type === 'installation' ? 'Installation Charge'
+                   : type === 'shipping' ? 'Shipping Cost'
+                   : s.serviceName; // keep current name for 'other'
+        return { ...s, serviceType: type, serviceName: name };
+      }
       if (field === 'servicePrice') {
         const num = parseFloat(val) || 0;
         return { ...s, servicePriceInput: val, servicePrice: Math.max(0, num) };
       }
       if (field === 'serviceTax') {
         const num = parseFloat(val) || 0;
-        // Cap tax at 100% — it's a percentage, not an absolute value
         const capped = Math.min(100, Math.max(0, num));
         return { ...s, serviceTaxInput: val, serviceTax: capped };
       }
@@ -441,7 +461,10 @@ const NewQuotation = () => {
           quantity: i.quantity,
           unitPrice: i.unitPrice,
           discountPercentage: i.discountPercentage,
-          discountAmount: i.discountMode === 'amount' && i.discountAmount > 0 ? i.discountAmount : undefined,
+          // Always send exact flat discountAmount so invoice copy never needs to re-derive from %
+          discountAmount: i.discountAmount > 0
+            ? i.discountAmount
+            : i.unitPrice * i.quantity * i.discountPercentage / 100,
           taxPercentage: i.taxPercentage,
         })),
         services: services.map((s) => ({
@@ -572,7 +595,7 @@ const NewQuotation = () => {
                   <input type="text" value={quotationCode} onChange={(e) => setQuotationCode(e.target.value)} placeholder="e.g. QT-2026-001" className="input-field" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-foreground mb-1 flex items-center gap-1"><Calendar size={11} />Delivery Date</label>
+                  <label className="block text-xs font-medium text-foreground mb-1 flex items-center gap-1"><Calendar size={11} />Expected Delivery Date:</label>
                   <input type="date" value={deliveryDate} onChange={(e) => setDeliveryDate(e.target.value)} className="input-field" />
                 </div>
                 <div>
@@ -663,11 +686,11 @@ const NewQuotation = () => {
                       <thead>
                         <tr className="table-header">
                           <th className="px-3 py-3 text-left font-semibold">Product</th>
-                          <th className="px-3 py-3 text-center font-semibold w-28">Price (₹)</th>
-                          <th className="px-3 py-3 text-center font-semibold w-40">Qty</th>
-                          <th className="px-3 py-3 text-center font-semibold w-28">Disc</th>
-                          <th className="px-3 py-3 text-center font-semibold w-20">Tax%</th>
-                          <th className="px-3 py-3 text-right font-semibold w-28">Total</th>
+                          <th className="px-3 py-3 text-center font-semibold w-32">Price (₹)</th>
+                          <th className="px-3 py-3 text-center font-semibold w-24">Qty</th>
+                          <th className="px-3 py-3 text-center font-semibold w-28">Disc (Rs.)</th>
+                          <th className="px-3 py-3 text-center font-semibold w-20">Tax (%)</th>
+                          <th className="px-3 py-3 text-right font-semibold w-28">Total (Rs.)</th>
                           <th className="px-3 py-3 w-10"></th>
                         </tr>
                       </thead>
@@ -677,9 +700,9 @@ const NewQuotation = () => {
                           const afterDisc = base - base * item.discountPercentage / 100;
                           const total = afterDisc + afterDisc * item.taxPercentage / 100;
                           const prod = products.find((p) => p.id === item.productId);
-                          const inputClass = "h-10 border border-input rounded-md bg-background text-foreground font-medium text-sm px-3 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all";
+                          const inputClass = "h-10 border border-input rounded-md bg-background text-foreground font-medium text-sm px-3 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none";
                           return (
-                            <tr key={item.productId} className="table-row hover:bg-muted/50">
+                            <tr key={item.uid} className="table-row hover:bg-muted/50">
                               <td className="px-3 py-3">
                                 <div className="flex items-center gap-2">
                                   {prod?.imagePath
@@ -691,15 +714,16 @@ const NewQuotation = () => {
                               </td>
                               <td className="px-2 py-3 text-center">
                                 <input type="number" value={item.priceInput} onChange={(e) => updatePrice(item.productId, e.target.value)}
-                                  className={`w-full text-center ${inputClass}`} min="0" step="0.01" />
+                                  className={`w-24 text-center ${inputClass}`} min="0" step="0.01" />
                               </td>
-                              <td className="px-2 py-3">
-                                <div className="flex items-center justify-center gap-1">
-                                  <button onClick={() => updateQty(item.productId, item.quantity - 1)} className="p-1 rounded-md bg-muted hover:bg-muted/80 transition-colors flex-shrink-0" title="Decrease"><Minus size={14} /></button>
-                                  <input type="number" value={item.quantity} onChange={(e) => updateQty(item.productId, parseInt(e.target.value) || 1)}
-                                    className={`text-center w-16 ${inputClass}`} min="1" />
-                                  <button onClick={() => updateQty(item.productId, item.quantity + 1)} className="p-1 rounded-md bg-muted hover:bg-muted/80 transition-colors flex-shrink-0" title="Increase"><Plus size={14} /></button>
-                                </div>
+                              <td className="px-2 py-3 text-center">
+                                <input
+                                  type="number"
+                                  value={item.quantity}
+                                  onChange={(e) => updateQty(item.productId, parseInt(e.target.value) || 1)}
+                                  className={`text-center w-20 ${inputClass}`}
+                                  min="1"
+                                />
                               </td>
                               <td className="px-2 py-3 text-center">
                                 <div className="flex items-center justify-center gap-1">
@@ -707,7 +731,7 @@ const NewQuotation = () => {
                                     type="number"
                                     value={item.discountMode === 'percent' ? item.discountInput : item.discountAmountInput}
                                     onChange={(e) => updateDiscount(item.productId, e.target.value)}
-                                    className={`text-center w-17 ${inputClass}`}
+                                    className={`text-center w-20 ${inputClass}`}
                                     min="0"
                                     max={item.discountMode === 'percent' ? 100 : undefined}
                                     step="0.01"
@@ -796,8 +820,26 @@ const NewQuotation = () => {
                           return (
                             <tr key={idx} className="table-row hover:bg-muted/50">
                               <td className="px-3 py-3">
-                                <input type="text" value={s.serviceName} onChange={(e) => updateService(idx, 'serviceName', e.target.value)}
-                                  placeholder="e.g. Installation, Setup" className={`w-full ${inputClass}`} />
+                                <div className="space-y-1.5">
+                                  <select
+                                    value={s.serviceType}
+                                    onChange={(e) => updateService(idx, 'serviceType', e.target.value)}
+                                    className={`w-full ${inputClass}`}
+                                  >
+                                    <option value="installation">Installation Charge</option>
+                                    <option value="shipping">Shipping Cost</option>
+                                    <option value="other">Other</option>
+                                  </select>
+                                  {s.serviceType === 'other' && (
+                                    <input
+                                      type="text"
+                                      value={s.serviceName}
+                                      onChange={(e) => updateService(idx, 'serviceName', e.target.value)}
+                                      placeholder="Enter charge name"
+                                      className={`w-full ${inputClass}`}
+                                    />
+                                  )}
+                                </div>
                               </td>
                               <td className="px-3 py-3">
                                 <input type="number" value={s.servicePriceInput} onChange={(e) => updateService(idx, 'servicePrice', e.target.value)}
@@ -865,16 +907,15 @@ const NewQuotation = () => {
               const grandTotalSell = totals.grandTotal;
               const gst18          = totals.totalTax; // actual GST from item calculations
 
-              // Installation & Shipping from "Add Service" section — not from company settings
-              // Match by service name keywords (case-insensitive)
+              // Installation & Shipping from "Add Service" section — matched by serviceType
               const installationCost = services
-                .filter(s => /install/i.test(s.serviceName))
+                .filter(s => s.serviceType === 'installation')
                 .reduce((sum, s) => sum + s.servicePrice + (s.servicePrice * s.serviceTax / 100), 0);
               const shippingFromServices = services
-                .filter(s => /ship|freight|logistic/i.test(s.serviceName))
+                .filter(s => s.serviceType === 'shipping')
                 .reduce((sum, s) => sum + s.servicePrice + (s.servicePrice * s.serviceTax / 100), 0);
               const otherServices = services
-                .filter(s => !/install|ship|freight|logistic/i.test(s.serviceName))
+                .filter(s => s.serviceType === 'other')
                 .reduce((sum, s) => sum + s.servicePrice + (s.servicePrice * s.serviceTax / 100), 0);
 
               // Equipment cost — matches original Excel formula exactly

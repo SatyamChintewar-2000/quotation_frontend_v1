@@ -134,6 +134,14 @@ const App = () => (
                     }
                   />
                   <Route
+                    path="/invoice/:id/edit"
+                    element={
+                      <ProtectedRoute requiredPermission="new_invoice">
+                        <DirectInvoice />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
                     path="/invoice/:id"
                     element={
                       <ProtectedRoute requiredPermission="invoice_management">

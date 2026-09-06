@@ -21,7 +21,7 @@ const fmtDate = (d?: string) => {
 };
 
 const fmtINR = (n: number) =>
-  'Rs. ' + new Intl.NumberFormat('en-IN').format(Math.round(n * 100) / 100);
+  '₹' + new Intl.NumberFormat('en-IN').format(Math.round(n * 100) / 100);
 
 const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
   'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen',
@@ -101,16 +101,39 @@ const InvoicePrintView = React.forwardRef<HTMLDivElement, Props>(({ invoice }, r
   const showWatermark = !!(company?.pdfWatermarkEnabled && company?.logo);
   const watermarkOpacity = company?.pdfWatermarkOpacity ?? 0.07;
 
-  // Key flag — drives ALL layout differences between Invoice and Proforma Invoice
+  // Key flags — drive ALL layout differences between document types
   const isProforma = invoice.documentType === 'PROFORMA_INVOICE';
+  const isTaxInvoice = invoice.documentType === 'TAX_INVOICE';
 
-  // GST breakdown — only used in Proforma layout
+  // GST breakdown — used in Proforma and Tax Invoice layouts
+  const showGstBreakdown = isProforma || isTaxInvoice;
   const totalTax = invoice.totalTax ?? 0;
   const isInterState = (invoice as any).gstType === 'IGST';
   const igst = isInterState ? totalTax : 0;
   const sgst = isInterState ? 0 : totalTax / 2;
   const cgst = isInterState ? 0 : totalTax / 2;
 
+  // Compute total discount from items when backend value is missing/zero
+  const computedDiscount = (() => {
+    const backendDiscount = Number(invoice.totalDiscount) || 0;
+    if (backendDiscount > 0) return backendDiscount;
+    return (invoice.items ?? []).filter(i => ((i as any).itemType || 'PRODUCT') !== 'SERVICE').reduce((sum, item) => {
+      const base    = (Number(item.unitPrice) || 0) * (Number(item.quantity) || 1);
+      const discAmt = Number(item.discountAmount) > 0
+        ? Number(item.discountAmount)
+        : base * (Number(item.discountPercentage) || 0) / 100;
+      return sum + discAmt;
+    }, 0);
+  })();
+
+  const computedSubtotal = (invoice.items ?? [])
+    .filter(i => ((i as any).itemType || 'PRODUCT') !== 'SERVICE')
+    .reduce((sum, item) => {
+      return sum + (Number(item.unitPrice) || 0) * (Number(item.quantity) || 1);
+    }, 0);
+
+  // Taxable Amount = Subtotal − Discount
+  const computedTaxableAmount = computedSubtotal - computedDiscount;
   return (
     <div
       ref={ref}
@@ -178,50 +201,48 @@ const InvoicePrintView = React.forwardRef<HTMLDivElement, Props>(({ invoice }, r
           </div>
         </div>
 
-        {/* ══ BILL TO + SHIP TO | INVOICE TITLE | DETAILS BOX ════════════════ */}
-        <div style={{ display: 'flex', alignItems: 'stretch', borderBottom: `2px solid ${BORDER_COLOR}`, marginBottom: '16px' }}>
+        {/* ══ BILL TO | SHIP TO | INVOICE TITLE | DETAILS BOX ═══════════════ */}
+        <div style={{ display: 'flex', alignItems: 'stretch', border: `2px solid ${BORDER_COLOR}`, borderRadius: '6px', marginBottom: '16px', overflow: 'hidden' }}>
 
-          {/* Left: Bill To — original layout for Invoice; stacked with Ship To for Proforma */}
+          {/* Bill To */}
           <div style={{ flex: 1, padding: '14px 16px', borderRight: `2px solid ${BORDER_COLOR}` }}>
-            {isProforma ? (
-              /* Proforma: Bill To on top, Ship To stacked below for address space */
-              <>
-                <div style={{ marginBottom: '10px' }}>
-                  <div style={{ fontSize: '9px', fontWeight: '700', color: TEXT_GRAY, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '4px' }}>Bill To:</div>
-                  <div style={{ fontSize: '14px', fontWeight: '800', color: TEXT_DARK, marginBottom: '2px' }}>{invoice.customerName}</div>
-                  {invoice.companyName && <div style={{ fontSize: '11px', color: TEXT_GRAY, fontWeight: '500' }}>{invoice.companyName}</div>}
-                  {invoice.customerAddress && <div style={{ fontSize: '10px', color: TEXT_GRAY, marginTop: '3px', lineHeight: '1.6' }}>{invoice.customerAddress}</div>}
-                </div>
-                <div style={{ borderTop: `1px dashed ${BORDER_COLOR}`, paddingTop: '8px' }}>
-                  <div style={{ fontSize: '9px', fontWeight: '700', color: TEXT_GRAY, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '4px' }}>Ship To:</div>
-                  <div style={{ fontSize: '10px', color: TEXT_DARK, fontWeight: '500', lineHeight: '1.6' }}>
-                    {invoice.shippingAddress || invoice.customerAddress || invoice.customerName}
-                  </div>
-                </div>
-              </>
-            ) : (
-              /* Normal Invoice: original Bill To layout */
-              <>
-                <div style={{ fontSize: '10px', color: TEXT_GRAY, marginBottom: '8px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px' }}>Bill To:</div>
-                <div style={{ fontSize: '17px', fontWeight: '800', color: TEXT_DARK, marginBottom: '4px' }}>{invoice.customerName}</div>
-                {invoice.companyName && <div style={{ fontSize: '12px', color: TEXT_GRAY, fontWeight: '500' }}>{invoice.companyName}</div>}
-              </>
+            <div style={{ fontSize: '9px', fontWeight: '700', color: TEXT_GRAY, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '6px' }}>Bill To:</div>
+            <div style={{ fontSize: '17px', fontWeight: '800', color: TEXT_DARK, marginBottom: '4px' }}>{invoice.customerName}</div>
+            {(invoice as any).customerPhone && (
+              <div style={{ fontSize: '10px', color: TEXT_DARK, marginTop: '2px', fontWeight: '700' }}>📱 {(invoice as any).customerPhone}</div>
+            )}
+            {(invoice as any).customerEmail && (
+              <div style={{ fontSize: '10px', color: TEXT_GRAY, marginTop: '2px' }}>✉ {(invoice as any).customerEmail}</div>
+            )}
+            {invoice.customerAddress && (
+              <div style={{ fontSize: '10px', color: TEXT_GRAY, marginTop: '2px', lineHeight: '1.6' }}>{invoice.customerAddress}</div>
             )}
           </div>
 
-          {/* Center: title — original INVOICE style for normal, underlined black for Proforma */}
+          {/* Ship To — always shown, same column width as Bill To */}
+          <div style={{ flex: 1, padding: '14px 16px', borderRight: `2px solid ${BORDER_COLOR}` }}>
+            <div style={{ fontSize: '9px', fontWeight: '700', color: TEXT_GRAY, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '6px' }}>Ship To:</div>
+            <div style={{ fontSize: '13px', fontWeight: '700', color: TEXT_DARK, marginBottom: '4px' }}>{invoice.customerName}</div>
+            <div style={{ fontSize: '10px', color: TEXT_GRAY, marginTop: '2px', lineHeight: '1.6' }}>
+              {invoice.shippingAddress || invoice.customerAddress || '—'}
+            </div>
+          </div>
+
+          {/* Center: title */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '14px 24px', borderRight: `2px solid ${BORDER_COLOR}`, minWidth: '160px' }}>
             <div style={{ textAlign: 'center' }}>
               {isProforma ? (
-                <div style={{ fontSize: '26px', fontWeight: '900', color: TEXT_DARK, letterSpacing: '2px', textDecoration: 'underline', textDecorationColor: TEXT_DARK }}>
-                  PROFORMA INVOICE
+                <div style={{ fontSize: '22px', fontWeight: '900', color: TEXT_DARK, letterSpacing: '2px', textDecoration: 'underline', textDecorationColor: TEXT_DARK }}>
+                  PROFORMA<br />INVOICE
+                </div>
+              ) : isTaxInvoice ? (
+                <div style={{ fontSize: '26px', fontWeight: '900', color: '#16a34a', letterSpacing: '2px', borderBottom: '4px solid #16a34a', paddingBottom: '6px' }}>
+                  TAX INVOICE
                 </div>
               ) : (
-                <>
-                  <div style={{ fontSize: '30px', fontWeight: '900', color: PRIMARY_COLOR, letterSpacing: '1.5px', textAlign: 'center', borderBottom: `4px solid ${PRIMARY_COLOR}`, paddingBottom: '6px' }}>
-                    INVOICE
-                  </div>
-                </>
+                <div style={{ fontSize: '30px', fontWeight: '900', color: PRIMARY_COLOR, letterSpacing: '1.5px', textAlign: 'center', borderBottom: `4px solid ${PRIMARY_COLOR}`, paddingBottom: '6px' }}>
+                  INVOICE
+                </div>
               )}
             </div>
           </div>
@@ -232,7 +253,7 @@ const InvoicePrintView = React.forwardRef<HTMLDivElement, Props>(({ invoice }, r
               <tbody>
                 <tr>
                   <td style={{ color: TEXT_GRAY, paddingBottom: '7px', paddingRight: '8px', fontWeight: '600', whiteSpace: 'nowrap' }}>
-                    {isProforma ? 'P.I Invoice No:' : 'Invoice No:'}
+                    {isProforma ? 'P.I No:' : isTaxInvoice ? 'Tax Invoice No:' : 'Invoice No:'}
                   </td>
                   <td style={{ fontWeight: '800', paddingBottom: '7px', color: PRIMARY_COLOR, fontSize: '12px' }}>{invoice.invoiceNumber}</td>
                 </tr>
@@ -241,12 +262,12 @@ const InvoicePrintView = React.forwardRef<HTMLDivElement, Props>(({ invoice }, r
                   <td style={{ fontWeight: '700', paddingBottom: '7px', color: TEXT_DARK }}>{fmtDate(invoice.invoiceDate)}</td>
                 </tr>
                 <tr>
-                  <td style={{ color: TEXT_GRAY, paddingBottom: '7px', paddingRight: '8px', fontWeight: '600', whiteSpace: 'nowrap' }}>Due Date:</td>
+                  <td style={{ color: TEXT_GRAY, paddingBottom: '7px', paddingRight: '8px', fontWeight: '600', whiteSpace: 'nowrap' }}>Valid Till :</td>
                   <td style={{ fontWeight: '700', paddingBottom: '7px', color: TEXT_DARK }}>{fmtDate(invoice.dueDate)}</td>
                 </tr>
-                {isProforma && (
+                {(isProforma || isTaxInvoice) && (
                   <tr>
-                    <td style={{ color: TEXT_GRAY, paddingRight: '8px', fontWeight: '600', whiteSpace: 'nowrap' }}>Delivery:</td>
+                    <td style={{ color: TEXT_GRAY, paddingRight: '8px', fontWeight: '600', whiteSpace: 'nowrap' }}>Expected Delivery Date:</td>
                     <td style={{ fontWeight: '600', color: TEXT_DARK }}>{invoice.deliveryDate ? fmtDate(invoice.deliveryDate) : '—'}</td>
                   </tr>
                 )}
@@ -268,22 +289,38 @@ const InvoicePrintView = React.forwardRef<HTMLDivElement, Props>(({ invoice }, r
           <table style={{ width: '100%', borderCollapse: 'collapse', border: `2px solid ${BORDER_COLOR}` }}>
             <thead>
               <tr>
-                <th style={thStyle(PRIMARY_COLOR, { width: '44px', textAlign: 'center' })}>Sr.No</th>
-                <th style={thStyle(PRIMARY_COLOR, { textAlign: 'left' })}>Product Details</th>
-                {isProforma && <th style={thStyle(PRIMARY_COLOR, { width: '68px', textAlign: 'center' })}>HSN/SAC</th>}
-                <th style={thStyle(PRIMARY_COLOR, { width: isProforma ? '44px' : '55px', textAlign: 'center' })}>Qty</th>
-                <th style={thStyle(PRIMARY_COLOR, { width: '95px', textAlign: 'right' })}>Unit Price</th>
-                <th style={thStyle(PRIMARY_COLOR, { width: isProforma ? '65px' : '65px', textAlign: 'right' })}>Disc%</th>
-                <th style={thStyle(PRIMARY_COLOR, { width: '95px', textAlign: 'right' })}>Tax</th>
-                <th style={thStyle(PRIMARY_COLOR, { width: '105px', textAlign: 'right', borderRight: 'none' })}>Amount</th>
+                <th style={thStyle(PRIMARY_COLOR, { width: '36px', textAlign: 'center' })}>Sr.</th>
+                <th style={thStyle(PRIMARY_COLOR, { textAlign: 'left' })}>Product / Description</th>
+                {showGstBreakdown && <th style={thStyle(PRIMARY_COLOR, { width: '65px', textAlign: 'center' })}>HSN/SAC</th>}
+                <th style={thStyle(PRIMARY_COLOR, { width: '80px', textAlign: 'right' })}>Unit Price (Rs.)</th>
+                <th style={thStyle(PRIMARY_COLOR, { width: '36px', textAlign: 'center' })}>Qty</th>
+                <th style={thStyle(PRIMARY_COLOR, { width: '70px', textAlign: 'right' })}>Disc. (Rs.)</th>
+                <th style={thStyle(PRIMARY_COLOR, { width: '80px', textAlign: 'right' })}>Taxable (Rs.)</th>
+                <th style={thStyle(PRIMARY_COLOR, { width: '40px', textAlign: 'center' })}>GST %</th>
+                <th style={thStyle(PRIMARY_COLOR, { width: '88px', textAlign: 'right', borderRight: 'none' })}>Total (Rs.)</th>
               </tr>
             </thead>
             <tbody>
-              {invoice.items?.map((item, idx) => (
-                <tr key={item.id} style={{ background: idx % 2 === 0 ? '#fff' : LIGHT_BG }}>
-                  <td style={tdStyle({ textAlign: 'center', color: TEXT_GRAY, width: '44px', verticalAlign: 'middle', fontWeight: '600' })}>
+              {invoice.items?.filter(item => ((item as any).itemType || 'PRODUCT') !== 'SERVICE').map((item, idx) => {
+                const unitPrice   = Number(item.unitPrice) || 0;
+                const qty         = Number(item.quantity)  || 1;
+                const taxPct      = Number(item.taxPercentage) || 0;
+                const base        = unitPrice * qty;
+                // Use stored discountAmount first (exact), fall back to % calculation
+                const discAmt     = Number(item.discountAmount) > 0
+                  ? Number(item.discountAmount)
+                  : base * (Number(item.discountPercentage) || 0) / 100;
+                const taxableVal  = base - discAmt;
+                const gstAmt      = Number(item.taxAmount) || (taxableVal * taxPct / 100);
+                const total       = Number(item.total ?? item.itemTotal) || (taxableVal + gstAmt);
+                const discPct     = Number(item.discountPercentage) || 0;
+                return (
+                <tr key={item.id ?? idx} style={{ background: idx % 2 === 0 ? '#fff' : LIGHT_BG, borderBottom: `1px solid ${BORDER_COLOR}`, pageBreakInside: 'avoid', breakInside: 'avoid' }}>
+                  {/* Sr. */}
+                  <td style={tdStyle({ textAlign: 'center', color: TEXT_GRAY, width: '36px', verticalAlign: 'middle', fontWeight: '600' })}>
                     {idx + 1}
                   </td>
+                  {/* Product / Description */}
                   <td style={tdStyle({ verticalAlign: 'top' })}>
                     <div style={{ fontWeight: '700', fontSize: '12px', color: TEXT_DARK, marginBottom: '3px' }}>
                       {item.productName}
@@ -294,209 +331,234 @@ const InvoicePrintView = React.forwardRef<HTMLDivElement, Props>(({ invoice }, r
                       </div>
                     )}
                   </td>
-                  {isProforma && (
-                    <td style={tdStyle({ textAlign: 'center', verticalAlign: 'middle', width: '68px', color: TEXT_GRAY })}>
+                  {/* HSN/SAC — only for Tax Invoice / Proforma */}
+                  {showGstBreakdown && (
+                    <td style={tdStyle({ textAlign: 'center', verticalAlign: 'middle', width: '60px', color: TEXT_GRAY, fontSize: '10px' })}>
                       {item.hsnCode || '—'}
                     </td>
                   )}
-                  <td style={tdStyle({ textAlign: 'center', verticalAlign: 'middle', width: isProforma ? '44px' : '55px', fontWeight: '600' })}>
-                    {item.quantity}
+                  {/* Unit Price */}
+                  <td style={tdStyle({ textAlign: 'right', verticalAlign: 'middle', width: '80px', fontWeight: '600', color: TEXT_DARK })}>
+                    {fmtINR(unitPrice)}
                   </td>
-                  <td style={tdStyle({ textAlign: 'right', verticalAlign: 'middle', width: '95px', fontWeight: '600' })}>
-                    {fmtINR(item.unitPrice)}
+                  {/* Qty */}
+                  <td style={tdStyle({ textAlign: 'center', verticalAlign: 'middle', width: '36px', fontWeight: '600' })}>
+                    {qty}
                   </td>
-                  <td style={tdStyle({ textAlign: 'right', verticalAlign: 'middle', width: '65px', color: TEXT_GRAY })}>
-                    {item.discountPercentage ?? 0}%
+                  {/* Discount (₹ total row, red) */}
+                  <td style={tdStyle({ textAlign: 'right', verticalAlign: 'middle', width: '70px', color: discPct > 0 ? '#dc2626' : TEXT_GRAY, fontWeight: '600', fontSize: '11px' })}>
+                    {discPct > 0 ? fmtINR(discAmt) : '—'}
                   </td>
-                  <td style={tdStyle({ textAlign: 'right', verticalAlign: 'middle', width: '95px', fontWeight: '600' })}>
-                    {fmtINR(item.taxAmount ?? 0)}
+                  {/* Taxable Value = (unit price − disc) × qty */}
+                  <td style={tdStyle({ textAlign: 'right', verticalAlign: 'middle', width: '80px', fontWeight: '700', color: TEXT_DARK })}>
+                    {fmtINR(taxableVal)}
                   </td>
-                  <td style={tdStyle({ textAlign: 'right', fontWeight: '800', verticalAlign: 'middle', width: '105px', borderRight: 'none', color: PRIMARY_COLOR, fontSize: '12px' })}>
-                    {fmtINR(item.total)}
+                  {/* GST % */}
+                  <td style={tdStyle({ textAlign: 'center', verticalAlign: 'middle', width: '40px', color: TEXT_GRAY, fontSize: '10px' })}>
+                    {taxPct > 0 ? `${taxPct}%` : '—'}
+                  </td>
+                  {/* Total */}
+                  <td style={tdStyle({ textAlign: 'right', fontWeight: '800', verticalAlign: 'middle', width: '88px', borderRight: 'none', color: PRIMARY_COLOR, fontSize: '12px' })}>
+                    {fmtINR(total)}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
+              {/* ── SERVICE CHARGE ROWS — removed; services now appear as
+                  named rows in the right-side totals table (quotation style) ── */}
             </tbody>
           </table>
         </div>
 
-        {/* ══ BOTTOM SECTION: Left info + Right totals ══════════════════════════ */}
-        <div style={{ display: 'flex', gap: '28px', alignItems: 'flex-start' }}>
+        {/* ══ BOTTOM SECTION + FOOTER — kept together to prevent page-break splits ══ */}
+        <div style={{ pageBreakInside: 'avoid', breakInside: 'avoid' }} data-invoice-bottom="true">
 
-          {/* ── LEFT COLUMN ─────────────────────────────────────────────────── */}
-          <div style={{ flex: 1 }}>
+        {/* Bottom Section: Left info + Right totals */}
+        <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '0' }}>
+          <tbody>
+            <tr style={{ verticalAlign: 'top' }}>
 
-            {/* Payment Terms — Proforma only */}
-            {isProforma && (
-              <div style={{ marginBottom: '12px' }}>
-                <div style={{ fontWeight: '800', fontSize: '11px', color: TEXT_DARK, marginBottom: '4px' }}>Payment Terms:</div>
-                <div style={{ fontSize: '10px', color: TEXT_GRAY, minHeight: '16px' }}>
-                  {(invoice as any).paymentTerms || ''}
-                </div>
-              </div>
-            )}
+              {/* ── LEFT COLUMN ──────────────────────────────────────────────── */}
+              <td style={{ paddingRight: '28px' }}>
 
-            {/* Bank Details */}
-            {hasBankDetails && (
-              <div style={{ marginBottom: '12px' }}>
-                <div style={{ fontWeight: '800', fontSize: '11px', color: TEXT_DARK, marginBottom: '6px' }}>
-                  Bank Details:
-                </div>
-                <div style={{ fontSize: '10px', color: TEXT_DARK, lineHeight: '1.8' }}>
-                  {company?.bankName && <div><strong>Bank:</strong> {company.bankName}</div>}
-                  {company?.accountNumber && <div><strong>A/C No:</strong> {company.accountNumber}</div>}
-                  {company?.ifscCode && <div><strong>IFSC:</strong> {company.ifscCode}</div>}
-                  {company?.branchName && <div><strong>Branch:</strong> {company.branchName}</div>}
-                  {company?.upiId && <div><strong>UPI:</strong> {company.upiId}</div>}
-                </div>
-              </div>
-            )}
+                {/* Payment Terms */}
+                {invoice.paymentTerms && (
+                  <div style={{ marginBottom: '12px' }}>
+                    <div style={{ fontWeight: '800', fontSize: '11px', color: TEXT_DARK, marginBottom: '4px' }}>Payment Terms:</div>
+                    <div style={{ fontSize: '10px', color: TEXT_GRAY, minHeight: '16px' }}>
+                      {invoice.paymentTerms}
+                    </div>
+                  </div>
+                )}
 
-            {/* Notes */}
-            {invoice.notes && (
-              <div style={{ marginBottom: '12px' }}>
-                <div style={{ fontWeight: '800', fontSize: '11px', color: TEXT_DARK, marginBottom: '4px' }}>
-                  Note:
-                </div>
-                <div style={{ fontSize: '10px', color: TEXT_DARK, lineHeight: '1.8', whiteSpace: 'pre-wrap' }}>
-                  {invoice.notes}
-                </div>
-              </div>
-            )}
+                {/* Bank Details */}
+                {hasBankDetails && (
+                  <div style={{ marginBottom: '12px' }}>
+                    <div style={{ fontWeight: '800', fontSize: '11px', color: TEXT_DARK, marginBottom: '6px' }}>
+                      Bank Details:
+                    </div>
+                    <div style={{ fontSize: '10px', color: TEXT_DARK, lineHeight: '1.8' }}>
+                      {company?.bankName && <div><strong>Bank:</strong> {company.bankName}</div>}
+                      {company?.accountNumber && <div><strong>A/C No:</strong> {company.accountNumber}</div>}
+                      {company?.ifscCode && <div><strong>IFSC:</strong> {company.ifscCode}</div>}
+                      {company?.branchName && <div><strong>Branch:</strong> {company.branchName}</div>}
+                      {company?.upiId && <div><strong>UPI:</strong> {company.upiId}</div>}
+                    </div>
+                  </div>
+                )}
 
-            {/* Terms and Conditions */}
-            {termsText && (
-              <div style={{ marginBottom: '12px' }}>
-                <div style={{ fontWeight: '800', fontSize: '11px', color: TEXT_DARK, marginBottom: '4px' }}>
-                  Terms &amp; Conditions:
-                </div>
-                <div style={{ fontSize: '10px', color: TEXT_DARK, lineHeight: '1.9', whiteSpace: 'pre-wrap' }}>
-                  {termsText}
-                </div>
-              </div>
-            )}
-          </div>
+                {/* Notes */}
+                {invoice.notes && (
+                  <div style={{ marginBottom: '12px' }}>
+                    <div style={{ fontWeight: '800', fontSize: '11px', color: TEXT_DARK, marginBottom: '4px' }}>
+                      Note:
+                    </div>
+                    <div style={{ fontSize: '10px', color: TEXT_DARK, lineHeight: '1.8', whiteSpace: 'pre-wrap' }}>
+                      {invoice.notes}
+                    </div>
+                  </div>
+                )}
 
-          {/* ── RIGHT COLUMN: Totals ─────────────────────────────────────────── */}
-          <div style={{ minWidth: '300px', flexShrink: 0 }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', border: `1px solid ${BORDER_COLOR}` }}>
-              <tbody>
-                {/* Subtotal */}
-                <tr style={{ borderBottom: `1px solid ${BORDER_COLOR}` }}>
-                  <td style={{ padding: '8px 12px', color: TEXT_GRAY, fontWeight: '600' }}>Subtotal</td>
-                  <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: '700', color: TEXT_DARK }}>{fmtINR(invoice.subtotal)}</td>
-                </tr>
-                {/* Discount */}
-                <tr style={{ borderBottom: `1px solid ${BORDER_COLOR}` }}>
-                  <td style={{ padding: '8px 12px', color: TEXT_GRAY, fontWeight: '600' }}>Discount (-)</td>
-                  <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: '700', color: TEXT_DARK }}>{fmtINR(invoice.totalDiscount ?? 0)}</td>
-                </tr>
+                {/* Terms and Conditions */}
+                {termsText && (
+                  <div style={{ marginBottom: '12px' }}>
+                    <div style={{ fontWeight: '800', fontSize: '11px', color: TEXT_DARK, marginBottom: '4px' }}>
+                      Terms &amp; Conditions:
+                    </div>
+                    <div style={{ fontSize: '10px', color: TEXT_DARK, lineHeight: '1.9', whiteSpace: 'pre-wrap' }}>
+                      {termsText}
+                    </div>
+                  </div>
+                )}
+              </td>
 
-                {/* Tax Amount — breakdown only for Proforma */}
-                <tr style={{ borderBottom: `1px solid ${BORDER_COLOR}` }}>
-                  <td style={{ padding: '8px 12px', color: TEXT_GRAY, fontWeight: '600' }}>
-                    <div>Tax Amount</div>
-                    {isProforma && totalTax > 0 && (
-                      <div style={{ fontSize: '9px', color: TEXT_GRAY, marginTop: '2px', lineHeight: '1.6' }}>
-                        {isInterState ? (
-                          <span>IGST: {fmtINR(igst)}</span>
-                        ) : (
-                          <>
-                            <span>SGST: {fmtINR(sgst)}</span><br />
-                            <span>CGST: {fmtINR(cgst)}</span>
-                          </>
+              {/* ── RIGHT COLUMN: Totals ─────────────────────────────────────── */}
+              <td style={{ width: '300px', verticalAlign: 'top' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', border: `1px solid ${BORDER_COLOR}` }}>
+                  <tbody>
+                    {/* Subtotal = unit price × qty before discount */}
+                    <tr style={{ borderBottom: `1px solid ${BORDER_COLOR}` }}>
+                      <td style={{ padding: '8px 12px', color: TEXT_GRAY, fontWeight: '600' }}>Subtotal</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: '700', color: TEXT_DARK }}>{fmtINR(computedSubtotal)}</td>
+                    </tr>
+                    <tr style={{ borderBottom: `1px solid ${BORDER_COLOR}` }}>
+                      <td style={{ padding: '8px 12px', color: TEXT_GRAY, fontWeight: '600' }}>Discount (-)</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: '700', color: computedDiscount > 0 ? '#dc2626' : TEXT_DARK }}>{fmtINR(computedDiscount)}</td>
+                    </tr>
+
+                    {/* Taxable Amount = Subtotal − Discount */}
+                    <tr style={{ borderBottom: `1px solid ${BORDER_COLOR}`, background: '#f8faff' }}>
+                      <td style={{ padding: '8px 12px', color: TEXT_DARK, fontWeight: '700' }}>Taxable Amount</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: '800', color: TEXT_DARK }}>{fmtINR(computedTaxableAmount)}</td>
+                    </tr>
+
+                    {/* Tax Amount — breakdown for Proforma and Tax Invoice */}
+                    <tr style={{ borderBottom: `1px solid ${BORDER_COLOR}` }}>
+                      <td style={{ padding: '8px 12px', color: TEXT_GRAY, fontWeight: '600' }}>
+                        <div>Tax Amount</div>
+                        {showGstBreakdown && totalTax > 0 && (
+                          <div style={{ fontSize: '9px', color: TEXT_GRAY, marginTop: '2px', lineHeight: '1.6' }}>
+                            {isInterState ? (
+                              <span>IGST: {fmtINR(igst)}</span>
+                            ) : (
+                              <>
+                                <span>SGST: {fmtINR(sgst)}</span><br />
+                                <span>CGST: {fmtINR(cgst)}</span>
+                              </>
+                            )}
+                          </div>
                         )}
-                      </div>
-                    )}
-                  </td>
-                  <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: '700', color: TEXT_DARK, verticalAlign: 'top' }}>
-                    {fmtINR(totalTax)}
-                  </td>
-                </tr>
+                      </td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: '700', color: TEXT_DARK, verticalAlign: 'top' }}>
+                        {fmtINR(totalTax)}
+                      </td>
+                    </tr>
 
-                {/* Total Amount bar */}
-                <tr style={{ background: PRIMARY_COLOR }}>
-                  <td style={{ padding: '12px 12px', color: '#fff', fontWeight: '800', fontSize: '13px' }}>
-                    Total Amount
-                  </td>
-                  <td style={{ padding: '12px 12px', color: '#fff', fontWeight: '900', fontSize: '14px', textAlign: 'right' }}>
-                    {fmtINR(invoice.totalAmount)}
-                  </td>
-                </tr>
+                    {/* Service Charges — one row per service, same as quotation */}
+                    {(invoice.items ?? [])
+                      .filter(i => (i as any).itemType === 'SERVICE')
+                      .map((item, idx) => {
+                        const p = Number(item.unitPrice) || 0;
+                        const q = Number(item.quantity)  || 1;
+                        const t = Number(item.taxPercentage) || 0;
+                        const total = p * q + p * q * t / 100;
+                        return (
+                          <tr key={`svc-${idx}`} style={{ borderBottom: `1px solid ${BORDER_COLOR}` }}>
+                            <td style={{ padding: '8px 12px', color: '#92400e', fontWeight: '600' }}>
+                              {item.productName || 'Service'}
+                            </td>
+                            <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: '700', color: '#92400e' }}>
+                              {fmtINR(total)}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    }
 
-                {/* Amount in Words */}
-                <tr style={{ borderBottom: `1px solid ${BORDER_COLOR}` }}>
-                  <td colSpan={2} style={{ padding: '10px 12px', background: LIGHT_BG, fontSize: '10px' }}>
-                    <div style={{ fontWeight: '700', color: TEXT_GRAY, fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>
-                      {isProforma ? 'Amount in Words:' : 'Invoice Total In Words:'}
-                    </div>
-                    <div style={{ color: TEXT_DARK, lineHeight: '1.5', fontWeight: '600', fontSize: '10px' }}>
-                      {numToWords(invoice.totalAmount)}
-                    </div>
-                  </td>
-                </tr>
+                    {/* Total Amount bar */}
+                    <tr style={{ background: PRIMARY_COLOR }}>
+                      <td style={{ padding: '12px 12px', color: '#fff', fontWeight: '800', fontSize: '13px' }}>
+                        Total Amount
+                      </td>
+                      <td style={{ padding: '12px 12px', color: '#fff', fontWeight: '900', fontSize: '14px', textAlign: 'right' }}>
+                        {fmtINR(invoice.totalAmount)}
+                      </td>
+                    </tr>
 
-                {/* Advance / Total Paid */}
-                <tr style={{ borderBottom: `1px solid ${BORDER_COLOR}` }}>
-                  <td style={{ padding: '8px 12px', color: TEXT_GRAY, fontWeight: '600' }}>
-                    Advance / Total Paid
-                  </td>
-                  <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: '700', color: '#16a34a', fontSize: '12px' }}>
-                    {fmtINR(invoice.totalPaid ?? 0)}
-                  </td>
-                </tr>
+                    {/* Amount in Words */}
+                    <tr style={{ borderBottom: `1px solid ${BORDER_COLOR}` }}>
+                      <td colSpan={2} style={{ padding: '10px 12px', background: LIGHT_BG, fontSize: '10px' }}>
+                        <div style={{ fontWeight: '700', color: TEXT_GRAY, fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>
+                          {isProforma ? 'Amount in Words:' : isTaxInvoice ? 'Tax Invoice Total In Words:' : 'Invoice Total In Words:'}
+                        </div>
+                        <div style={{ color: TEXT_DARK, lineHeight: '1.5', fontWeight: '600', fontSize: '10px' }}>
+                          {numToWords(invoice.totalAmount)}
+                        </div>
+                      </td>
+                    </tr>
 
-                {/* Balance Due */}
-                <tr>
-                  <td style={{ padding: '8px 12px', color: TEXT_GRAY, fontWeight: '600' }}>
-                    Balance Due
-                  </td>
-                  <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: '800', color: '#dc2626', fontSize: '13px' }}>
-                    {fmtINR(invoice.remainingBalance ?? invoice.totalAmount)}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
+                    {/* Advance / Total Paid */}
+                    <tr style={{ borderBottom: `1px solid ${BORDER_COLOR}` }}>
+                      <td style={{ padding: '8px 12px', color: TEXT_GRAY, fontWeight: '600' }}>
+                        Advance / Total Paid
+                      </td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: '700', color: '#16a34a', fontSize: '12px' }}>
+                        {fmtINR(invoice.totalPaid ?? 0)}
+                      </td>
+                    </tr>
+
+                    {/* Balance Due */}
+                    <tr>
+                      <td style={{ padding: '8px 12px', color: TEXT_GRAY, fontWeight: '600' }}>
+                        Balance Due
+                      </td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: '800', color: '#dc2626', fontSize: '13px' }}>
+                        {fmtINR(invoice.remainingBalance ?? invoice.totalAmount)}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </td>
+            </tr>
+          </tbody>
+        </table>
 
         {/* ══ FOOTER ═══════════════════════════════════════════════════════════ */}
         <div style={{
           borderTop: `3px solid ${PRIMARY_COLOR}`,
           marginTop: '24px',
-          paddingTop: '14px',
+          paddingTop: '10px',
+          textAlign: 'center',
         }}>
-          {isProforma ? (
-            /* Proforma footer: FOR ___ line + Authorised Signatory */
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-              <div>
-                <div style={{ fontSize: '11px', color: TEXT_DARK, fontWeight: '600', marginBottom: '6px' }}>
-                  Thank you for your business!&nbsp;&nbsp;
-                  <span style={{ fontWeight: '400', color: TEXT_GRAY }}>FOR</span>
-                  <span style={{ display: 'inline-block', borderBottom: `1px solid ${TEXT_DARK}`, minWidth: '120px', marginLeft: '8px' }}>&nbsp;</span>
-                </div>
-                <div style={{ fontSize: '10px', color: TEXT_GRAY, fontWeight: '500' }}>
-                  {compName}{company?.phone && ` • ${company.phone}`}{company?.email && ` • ${company.email}`}
-                </div>
-              </div>
-              <div style={{ textAlign: 'center', minWidth: '140px' }}>
-                <div style={{ borderTop: `1px solid ${TEXT_DARK}`, paddingTop: '6px', fontSize: '10px', color: TEXT_DARK, fontWeight: '600', letterSpacing: '0.5px' }}>
-                  Authorised Signatory
-                </div>
-              </div>
-            </div>
-          ) : (
-            /* Normal Invoice footer: original centered style */
-            <div style={{ textAlign: 'center', fontSize: '10px', color: TEXT_GRAY, fontWeight: '500' }}>
-              <div style={{ fontWeight: '700', fontSize: '11px', color: TEXT_DARK, marginBottom: '4px' }}>
-                Thank you for your business!
-              </div>
-              <div style={{ opacity: 0.85 }}>
-                {compName}{company?.phone && ` • ${company.phone}`}{company?.email && ` • ${company.email}`}
-              </div>
-            </div>
-          )}
+          <div style={{ fontWeight: '700', fontSize: '12px', color: TEXT_DARK, marginBottom: '3px' }}>
+            Thank you for your business — {compName}
+          </div>
+          <div style={{ fontSize: '9px', color: TEXT_GRAY, fontStyle: 'italic', opacity: 0.8 }}>
+            This is a computer generated document. No signature is required.
+          </div>
         </div>
+
+        </div>{/* end pageBreakInside wrapper */}
 
       </div>{/* end z-index wrapper */}
     </div>

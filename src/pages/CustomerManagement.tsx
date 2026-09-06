@@ -109,12 +109,18 @@ const CustomerManagement = () => {
     e.preventDefault();
     if (!validate()) return;
 
+    // Normalize empty email to undefined — backend @Email rejects empty string ""
+    const payload = {
+      ...formData,
+      email: formData.email?.trim() ? formData.email.trim() : undefined,
+    };
+
     try {
       if (editingCustomer) {
-        await customerService.update(editingCustomer.id, formData);
+        await customerService.update(editingCustomer.id, payload);
         toast.success('Customer updated successfully');
       } else {
-        await customerService.create(formData);
+        await customerService.create(payload);
         toast.success('Customer created successfully');
       }
       setShowModal(false);
@@ -123,9 +129,12 @@ const CustomerManagement = () => {
       fetchCustomers(true);
     } catch (error: any) {
       console.error('Failed to save customer:', error);
-      const errorMessage = error.response?.data?.message || 'Failed to save customer';
+      const raw = error.response?.data?.message || error.message || '';
+      const errorMessage = raw || 'Failed to save customer. Please try again.';
       if (errorMessage.toLowerCase().includes('phone')) {
-        setErrors((prev) => ({ ...prev, phone: errorMessage }));
+        setErrors((prev) => ({ ...prev, phone: 'You already have a customer with this phone number' }));
+      } else if (errorMessage.toLowerCase().includes('email')) {
+        setErrors((prev) => ({ ...prev, email: 'A customer with this email already exists' }));
       } else {
         toast.error(errorMessage);
       }

@@ -9,7 +9,7 @@ import NumericInput from '@/components/common/NumericInput';
 
 const NewInvoice = () => {
   const navigate = useNavigate();
-  const { createInvoice } = useInvoices();
+  const { createInvoice, fetchInvoices } = useInvoices();
   const { quotations } = useQuotations();
   const [loading, setLoading] = useState(false);
 
@@ -22,20 +22,26 @@ const NewInvoice = () => {
     discountPercentage: 0,
     notes: '',
     termsAndConditions: '',
-    documentType: 'INVOICE' as 'INVOICE' | 'PROFORMA_INVOICE',
+    documentType: 'INVOICE' as 'INVOICE' | 'PROFORMA_INVOICE' | 'TAX_INVOICE',
     gstType: 'SGST_CGST' as 'IGST' | 'SGST_CGST',
     shippingAddress: '',
     deliveryDate: '',
     expiryDate: '',
+    paymentTerms: '',
   });
 
   const [selectedQuotation, setSelectedQuotation] = useState<(typeof quotations)[0] | null>(null);
+  const [discountMode, setDiscountMode] = useState<'percent' | 'amount'>('percent');
+  const [discountRawInput, setDiscountRawInput] = useState('0');
 
   const handleQuotationChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const quotationId = e.target.value;
-    setFormData({ ...formData, quotationId });
     const quotation = quotations.find((q) => q.id === quotationId);
     setSelectedQuotation(quotation || null);
+    // Pre-fill invoice-level discount from quotation's stored discount percentage
+    const quotDiscount = Number((quotation as any)?.discountPercentage ?? 0);
+    setDiscountRawInput(String(quotDiscount));
+    setFormData({ ...formData, quotationId, discountPercentage: quotDiscount });
   };
 
   const handleInputChange = (
@@ -68,8 +74,12 @@ const NewInvoice = () => {
         shippingAddress: formData.shippingAddress || undefined,
         deliveryDate: formData.deliveryDate || undefined,
         expiryDate: formData.expiryDate || undefined,
+        paymentTerms: formData.paymentTerms || undefined,
       });
-      if (result) navigate(`/invoice/${result.id}`);
+      if (result) {
+        await fetchInvoices();
+        navigate(`/invoice/${result.id}`);
+      }
     } finally {
       setLoading(false);
     }
@@ -160,7 +170,7 @@ const NewInvoice = () => {
             {/* Document Type Toggle */}
             <div>
               <label className="block text-sm font-medium text-foreground mb-2">Document Type</label>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 <button
                   type="button"
                   onClick={() => setFormData({ ...formData, documentType: 'INVOICE' })}
@@ -185,16 +195,33 @@ const NewInvoice = () => {
                   <FileBadge size={16} />
                   Proforma Invoice
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, documentType: 'TAX_INVOICE' })}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-lg border-2 text-sm font-semibold transition-all ${
+                    formData.documentType === 'TAX_INVOICE'
+                      ? 'border-green-600 bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-400'
+                      : 'border-border bg-card text-muted-foreground hover:border-green-400'
+                  }`}
+                >
+                  <FileText size={16} />
+                  Tax Invoice
+                </button>
               </div>
               {formData.documentType === 'PROFORMA_INVOICE' && (
                 <p className="text-xs text-amber-600 mt-1.5 dark:text-amber-400">
                   This is a Proforma Invoice and is not a Tax Invoice.
                 </p>
               )}
+              {formData.documentType === 'TAX_INVOICE' && (
+                <p className="text-xs text-green-600 mt-1.5 dark:text-green-400">
+                  This is a Tax Invoice with full GST breakdown.
+                </p>
+              )}
             </div>
 
-            {/* GST Type — only relevant for Proforma Invoice */}
-            {formData.documentType === 'PROFORMA_INVOICE' && (
+            {/* GST Type — relevant for Proforma and Tax Invoice */}
+            {(formData.documentType === 'PROFORMA_INVOICE' || formData.documentType === 'TAX_INVOICE') && (
             <div>
               <label className="block text-sm font-medium text-foreground mb-2">GST Type</label>
               <div className="flex gap-2">
@@ -242,7 +269,7 @@ const NewInvoice = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">
-                  <span className="flex items-center gap-1.5"><CalendarDays size={14} />Due Date *</span>
+                  <span className="flex items-center gap-1.5"><CalendarDays size={14} />Valid Till : *</span>
                 </label>
                 <input
                   type="date"
@@ -258,7 +285,7 @@ const NewInvoice = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">
-                  <span className="flex items-center gap-1.5"><CalendarDays size={14} />Delivery Date</span>
+                  <span className="flex items-center gap-1.5"><CalendarDays size={14} />Expected Delivery Date:</span>
                 </label>
                 <input
                   type="date"
@@ -294,19 +321,70 @@ const NewInvoice = () => {
               />
             </div>
 
-            <div className="max-w-xs">
+            {/* Payment Terms — shown for Proforma, useful for any invoice */}
+            <div>
               <label className="block text-sm font-medium text-foreground mb-1.5">
-                <span className="flex items-center gap-1.5"><Percent size={14} />Discount Percentage (%)</span>
+                Payment Terms
+                <span className="text-xs text-muted-foreground ml-2">(optional)</span>
               </label>
-              <NumericInput
-                value={formData.discountPercentage}
-                onChange={(val) => setFormData({ ...formData, discountPercentage: val })}
-                min={0}
-                max={100}
-                step={0.01}
-                placeholder="0"
+              <input
+                type="text"
+                name="paymentTerms"
+                value={formData.paymentTerms}
+                onChange={handleInputChange}
+                placeholder="e.g. 100% advance, 50% advance + 50% before dispatch"
                 className="input-field"
               />
+            </div>
+
+            <div className="max-w-xs">
+              <label className="block text-sm font-medium text-foreground mb-1.5">
+                <span className="flex items-center gap-1.5"><Percent size={14} />Invoice Discount</span>
+              </label>
+              <div className="flex items-center gap-1">
+                <input
+                  type="number"
+                  value={discountRawInput}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setDiscountRawInput(val);
+                    if (discountMode === 'percent') {
+                      setFormData({ ...formData, discountPercentage: val === '' ? 0 : Math.min(100, Math.max(0, parseFloat(val) || 0)) });
+                    } else {
+                      // amount mode — compute % from selected quotation subtotal
+                      const amt = parseFloat(val) || 0;
+                      const sub = selectedQuotation ? (Number(selectedQuotation.subtotal) || 0) : 0;
+                      setFormData({ ...formData, discountPercentage: sub > 0 ? Math.min(100, (amt / sub) * 100) : 0 });
+                    }
+                  }}
+                  placeholder="0"
+                  min="0"
+                  max={discountMode === 'percent' ? 100 : undefined}
+                  step="0.01"
+                  className="input-field [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (discountMode === 'percent') {
+                      const sub = selectedQuotation ? (Number(selectedQuotation.subtotal) || 0) : 0;
+                      const amt = sub * formData.discountPercentage / 100;
+                      setDiscountRawInput(amt.toFixed(2));
+                      setDiscountMode('amount');
+                    } else {
+                      const sub = selectedQuotation ? (Number(selectedQuotation.subtotal) || 0) : 0;
+                      const amt = parseFloat(discountRawInput) || 0;
+                      const pct = sub > 0 ? Math.min(100, (amt / sub) * 100) : 0;
+                      setDiscountRawInput(pct.toFixed(2));
+                      setFormData({ ...formData, discountPercentage: pct });
+                      setDiscountMode('percent');
+                    }
+                  }}
+                  className="flex-shrink-0 w-9 h-10 rounded-md border border-input bg-muted hover:bg-muted/80 text-xs font-semibold text-muted-foreground transition-colors"
+                >
+                  {discountMode === 'percent' ? '%' : '₹'}
+                </button>
+              </div>
             </div>
           </div>
 

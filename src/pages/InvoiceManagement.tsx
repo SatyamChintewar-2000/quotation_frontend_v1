@@ -5,10 +5,10 @@ import { Invoice } from '@/services/invoiceService';
 import invoiceService from '@/services/invoiceService';
 import { toast } from 'sonner';
 import {
-  FileText, Eye, Trash2, Plus, Download, Send,
+  FileText, Eye, Trash2, Plus, Download, Send, Edit,
   CheckCircle, Clock, AlertCircle, IndianRupee, X, FileCheck, FilePlus,
 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { SearchBar } from '@/components/common/SearchBar';
 import { Pagination } from '@/components/common/Pagination';
 import { DeleteConfirmModal } from '@/components/common/DeleteConfirmModal';
@@ -21,6 +21,7 @@ const ITEMS_PER_PAGE = 10;
 
 const InvoiceManagement = () => {
   const { invoices, loading, deleteInvoice, markAsSent } = useInvoices();
+  const navigate = useNavigate();
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [paymentStatusFilter, setPaymentStatusFilter] = useState<string>('ALL');
   const [documentTypeFilter, setDocumentTypeFilter] = useState<string>('ALL');
@@ -50,7 +51,7 @@ const InvoiceManagement = () => {
   }, [invoices, statusFilter, paymentStatusFilter, documentTypeFilter, searchTerm]);
 
   const totalPages = Math.ceil(filteredInvoices.length / ITEMS_PER_PAGE);
-  const { sortedData: sortedInvoices, sort, handleSort } = useSortable(filteredInvoices);
+  const { sortedData: sortedInvoices, sort, handleSort } = useSortable(filteredInvoices, { key: 'id', direction: 'desc' });
   const paginatedInvoices = sortedInvoices.slice(
     (currentPage - 1) * ITEMS_PER_PAGE,
     currentPage * ITEMS_PER_PAGE
@@ -195,7 +196,7 @@ const InvoiceManagement = () => {
             <SearchBar
               value={searchTerm}
               onChange={setSearchTerm}
-              placeholder="Search by invoice number or customer..."
+              placeholder="Search I Num or Cust Name"
               className="flex-1"
             />
             <select
@@ -229,6 +230,7 @@ const InvoiceManagement = () => {
               <option value="ALL">All Document Types</option>
               <option value="INVOICE">Invoice</option>
               <option value="PROFORMA_INVOICE">Proforma Invoice</option>
+              <option value="TAX_INVOICE">Tax Invoice</option>
             </select>
           </div>
         </div>
@@ -272,6 +274,10 @@ const InvoiceManagement = () => {
                             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-800">
                               Proforma
                             </span>
+                          ) : invoice.documentType === 'TAX_INVOICE' ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700 border border-green-200 dark:bg-green-950/40 dark:text-green-400 dark:border-green-800">
+                              Tax Invoice
+                            </span>
                           ) : (
                             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-800">
                               Invoice
@@ -301,6 +307,15 @@ const InvoiceManagement = () => {
                             <Link to={`/invoice/${invoice.id}`} className="p-2 rounded-lg hover:bg-muted transition-colors" title="View">
                               <Eye className="w-4 h-4 text-muted-foreground" />
                             </Link>
+                            {invoice.documentType === 'PROFORMA_INVOICE' && (
+                              <button
+                                onClick={() => navigate(`/invoice/${invoice.id}/edit`)}
+                                className="p-2 rounded-lg hover:bg-amber-50 transition-colors"
+                                title="Edit Proforma Invoice"
+                              >
+                                <Edit className="w-4 h-4 text-amber-600" />
+                              </button>
+                            )}
                             {invoice.status === 'DRAFT' && (
                               <button onClick={() => handleSend(invoice.id)} className="p-2 rounded-lg hover:bg-muted transition-colors" title="Send">
                                 <Send className="w-4 h-4 text-muted-foreground" />

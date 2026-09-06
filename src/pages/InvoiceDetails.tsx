@@ -1,10 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { TopBar } from '@/components/layout/TopBar';
 import { useInvoices } from '@/contexts/InvoiceContext';
 import { useParams, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import html2canvas from 'html2canvas';
-import jsPDF from 'jspdf';
 import {
   ArrowLeft,
   Download,
@@ -21,7 +19,6 @@ import {
 import { Invoice, Payment } from '@/services/invoiceService';
 import { DeleteConfirmModal } from '@/components/common/DeleteConfirmModal';
 import { StatusBadge } from '@/components/common/StatusBadge';
-import InvoicePrintView from '@/components/common/InvoicePrintView';
 import NumericInput from '@/components/common/NumericInput';
 
 const InvoiceDetails = () => {
@@ -32,7 +29,6 @@ const InvoiceDetails = () => {
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
-  const printRef = useRef<HTMLDivElement>(null);
   const [showPaymentForm, setShowPaymentForm] = useState(false);
   const [deletingPaymentId, setDeletingPaymentId] = useState<number | null>(null);
   const [paymentData, setPaymentData] = useState({
@@ -101,31 +97,41 @@ const InvoiceDetails = () => {
   };
 
   const handleDownloadPDF = async () => {
-    if (!printRef.current) { toast.error('Could not render invoice'); return; }
+    if (!invoice) { toast.error('No invoice to download'); return; }
     try {
       setDownloading(true);
-      const canvas = await html2canvas(printRef.current, {
-        scale: 1.5, // Reduced from 2 to 1.5 for smaller file size
-        useCORS: true, 
-        allowTaint: true, 
-        backgroundColor: '#ffffff', 
-        logging: false,
-      });
-      // Use JPEG with compression instead of PNG for much smaller file size
-      const imgData = canvas.toDataURL('image/jpeg', 0.85); // 85% quality JPEG
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'px', format: 'a4' });
-      const pw = pdf.internal.pageSize.getWidth();
-      const ph = (canvas.height * pw) / canvas.width;
-      const pageH = pdf.internal.pageSize.getHeight();
-      let y = 0;
-      while (y < ph) {
-        if (y > 0) pdf.addPage();
-        pdf.addImage(imgData, 'JPEG', 0, -y, pw, ph, undefined, 'FAST'); // Use JPEG and FAST compression
-        y += pageH;
+
+      const { generateInvoicePdf } = await import('@/utils/generateInvoicePdf');
+      const { companyService }      = await import('@/services/companyService');
+      const QRCode                  = await import('qrcode');
+
+      let company: any = {};
+      try {
+        company = await companyService.getMyCompany();
+      } catch {
+        try {
+          const list = await companyService.getAll();
+          if (list.length) company = list[0];
+        } catch { /* proceed without company */ }
       }
-      pdf.save(`invoice-${invoice?.invoiceNumber || id}.pdf`);
-      toast.success('PDF downloaded');
+
+      // Build QR code from UPI ID (same pattern as quotation)
+      let qrDataUrl = '';
+      if (company?.upiId && invoice.totalAmount) {
+        const upiStr = `upi://pay?pa=${company.upiId}&pn=${encodeURIComponent(company.companyName || '')}&am=${invoice.totalAmount}&cu=INR`;
+        try { qrDataUrl = await QRCode.default.toDataURL(upiStr, { width: 120, margin: 1 }); } catch { /* skip */ }
+      }
+
+      await generateInvoicePdf(
+        invoice,
+        company,
+        qrDataUrl,
+        `invoice-${invoice.invoiceNumber || id}.pdf`,
+      );
+
+      toast.success('PDF downloaded successfully');
     } catch (err) {
+      console.error('PDF generation error:', err);
       toast.error('Failed to generate PDF');
     } finally {
       setDownloading(false);
@@ -204,6 +210,11 @@ const InvoiceDetails = () => {
                     Proforma Invoice
                   </span>
                 )}
+                {invoice.documentType === 'TAX_INVOICE' && (
+                  <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700 border border-green-200">
+                    Tax Invoice
+                  </span>
+                )}
               </div>
               <p className="text-gray-600 mt-1">Invoice Date: {formatDate(invoice.invoiceDate)}</p>
             </div>
@@ -234,8 +245,12 @@ const InvoiceDetails = () => {
               <div className="text-sm text-gray-600 space-y-1">
                 {invoice.documentType && invoice.documentType !== 'INVOICE' && (
                   <p>
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-200">
-                      Proforma Invoice
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border ${
+                      invoice.documentType === 'TAX_INVOICE'
+                        ? 'bg-green-100 text-green-700 border-green-200'
+                        : 'bg-amber-100 text-amber-700 border-amber-200'
+                    }`}>
+                      {invoice.documentType === 'TAX_INVOICE' ? 'Tax Invoice' : 'Proforma Invoice'}
                     </span>
                   </p>
                 )}
@@ -243,11 +258,11 @@ const InvoiceDetails = () => {
                   <span className="font-medium">Invoice Date:</span> {formatDate(invoice.invoiceDate)}
                 </p>
                 <p>
-                  <span className="font-medium">Due Date:</span> {formatDate(invoice.dueDate)}
+                  <span className="font-medium">Valid Till:</span> {formatDate(invoice.dueDate)}
                 </p>
                 {invoice.deliveryDate && (
                   <p>
-                    <span className="font-medium">Delivery Date:</span> {formatDate(invoice.deliveryDate)}
+                    <span className="font-medium">Expected Delivery Date:</span> {formatDate(invoice.deliveryDate)}
                   </p>
                 )}
                 {invoice.expiryDate && (
@@ -262,6 +277,15 @@ const InvoiceDetails = () => {
 
           {/* Action Buttons */}
           <div className="flex gap-4">
+            {invoice.documentType === 'PROFORMA_INVOICE' && (
+              <button
+                onClick={() => navigate(`/invoice/${invoice.id}/edit`)}
+                className="flex items-center gap-2 bg-amber-500 text-white px-4 py-2 rounded-lg hover:bg-amber-600 transition"
+              >
+                <Edit className="w-4 h-4" />
+                Edit Invoice
+              </button>
+            )}
             {invoice.status === 'DRAFT' && (
               <button
                 onClick={handleSendInvoice}
@@ -578,10 +602,6 @@ const InvoiceDetails = () => {
         message="Are you sure you want to delete this payment record? This action cannot be undone."
       />
 
-      {/* Hidden print view for PDF generation */}
-      <div style={{ position: 'fixed', left: '-9999px', top: 0, zIndex: -1 }}>
-        <InvoicePrintView ref={printRef} invoice={invoice} />
-      </div>
     </div>
   );
 };

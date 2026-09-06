@@ -27,6 +27,12 @@ export interface Product {
   // Optional: weight and volume per unit (for export/logistics quotations)
   netWeight?: number;
   cbm?: number;
+  // International Purchase (USD) fields
+  purchasePriceCurrency?: string;   // "INR" | "USD"
+  purchasePriceUsd?: number;        // per-unit price in USD
+  shippingCostUsd?: number;         // per-unit shipping in USD
+  dutyGstPercent?: number;          // GST+duty % (default 31)
+  clearanceCost?: number;           // clearance cost in INR per unit
 }
 
 export interface ProductRequest {
@@ -50,6 +56,12 @@ export interface ProductRequest {
   // Optional: weight and volume per unit (for export/logistics quotations)
   netWeight?: number;
   cbm?: number;
+  // International Purchase (USD) fields
+  purchasePriceCurrency?: string;   // "INR" | "USD"
+  purchasePriceUsd?: number;        // per-unit price in USD
+  shippingCostUsd?: number;         // per-unit shipping in USD
+  dutyGstPercent?: number;          // GST+duty % (default 31)
+  clearanceCost?: number;           // clearance cost in INR per unit
 }
 
 export const productService = {

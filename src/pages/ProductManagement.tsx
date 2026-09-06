@@ -28,6 +28,10 @@ const EMPTY: ProductRequest = {
   unit: 'piece', quantity: 0, discountPercentage: 0,
   taxType: 'GST', taxPercentage: 18, expiryDate: '', imagePath: '', hsnCode: '',
   netWeight: undefined, cbm: undefined,
+  // USD fields
+  purchasePriceCurrency: 'INR',
+  purchasePriceUsd: undefined, shippingCostUsd: undefined,
+  dutyGstPercent: 31, clearanceCost: undefined,
 };
 
 const ProductManagement = () => {
@@ -49,6 +53,11 @@ const ProductManagement = () => {
 
   // Company CBM advanced mode toggle — controls CBM field in the modal
   const [showCbmField, setShowCbmField] = useState(false);
+  // USD purchase tab — shown when company has cbmAdvancedMode / showUsdColumn enabled
+  const [showUsdPurchase, setShowUsdPurchase] = useState(false);
+  const [usdExchangeRate, setUsdExchangeRate] = useState(83);
+  // Which purchase tab is active in the modal
+  const [purchaseTab, setPurchaseTab] = useState<'local' | 'international'>('local');
 
   useEffect(() => {
     if (!user) return;
@@ -60,6 +69,8 @@ const ProductManagement = () => {
           .then((c) => {
             const cbmOn = Boolean(c.cbmAdvancedMode ?? c.showCbmColumn ?? c.showUsdColumn);
             setShowCbmField(cbmOn);
+            setShowUsdPurchase(Boolean(c.cbmAdvancedMode ?? c.showUsdColumn));
+            setUsdExchangeRate(c.usdExchangeRate ?? 83);
           })
           .catch((err) => {
             if (retryCount === 0) {
@@ -96,6 +107,12 @@ const ProductManagement = () => {
       netWeight: p.netWeight,
       cbm: p.cbm,
       hsnSacCode: p.hsnSacCode || '',
+      // USD fields
+      purchasePriceCurrency: p.purchasePriceCurrency || 'INR',
+      purchasePriceUsd: p.purchasePriceUsd,
+      shippingCostUsd: p.shippingCostUsd,
+      dutyGstPercent: p.dutyGstPercent ?? 31,
+      clearanceCost: p.clearanceCost,
     } as Product));
     setProducts(mapped);
     setLoading(contextLoading);
@@ -132,8 +149,29 @@ const ProductManagement = () => {
     ev.preventDefault();
     if (!validate()) return;
     try {
+      // When international tab: auto-calculate purchasePrice in INR from USD fields
+      let finalPurchasePrice = formData.purchasePrice ?? 0;
+      let currency = formData.purchasePriceCurrency ?? 'INR';
+      if (purchaseTab === 'international' && showUsdPurchase) {
+        currency = 'USD';
+        const itemUsd = formData.purchasePriceUsd ?? 0;
+        const shipUsd = formData.shippingCostUsd ?? 0;
+        const dutyPct = formData.dutyGstPercent ?? 31;
+        const clearance = formData.clearanceCost ?? 0;
+        const totalUsd = itemUsd + shipUsd;
+        finalPurchasePrice = Math.round(totalUsd * (1 + dutyPct / 100) * usdExchangeRate * 100 + clearance * 100) / 100;
+      } else {
+        currency = 'INR';
+      }
       const payload: ProductRequest = {
         ...formData,
+        purchasePriceCurrency: currency,
+        purchasePrice: finalPurchasePrice,
+        // Clear USD fields when local tab is used
+        purchasePriceUsd: purchaseTab === 'international' ? formData.purchasePriceUsd : undefined,
+        shippingCostUsd: purchaseTab === 'international' ? formData.shippingCostUsd : undefined,
+        dutyGstPercent: purchaseTab === 'international' ? (formData.dutyGstPercent ?? 31) : undefined,
+        clearanceCost: purchaseTab === 'international' ? formData.clearanceCost : undefined,
         expiryDate: formData.expiryDate || undefined,
       };
       if (editingId) {
@@ -171,7 +209,14 @@ const ProductManagement = () => {
       netWeight: p.netWeight ?? undefined,
       cbm: p.cbm ?? undefined,
       hsnCode: p.hsnCode || '',
+      // USD fields
+      purchasePriceCurrency: p.purchasePriceCurrency || 'INR',
+      purchasePriceUsd: p.purchasePriceUsd ?? undefined,
+      shippingCostUsd: p.shippingCostUsd ?? undefined,
+      dutyGstPercent: p.dutyGstPercent ?? 31,
+      clearanceCost: p.clearanceCost ?? undefined,
     });
+    setPurchaseTab((p.purchasePriceCurrency === 'USD') ? 'international' : 'local');
     setImagePreview(p.imagePath || '');
     setShowModal(true);
   };
@@ -206,6 +251,7 @@ const ProductManagement = () => {
     setFormData(EMPTY);
     setImagePreview('');
     setErrors({});
+    setPurchaseTab('local');
   };
 
   const confirmDelete = async () => {
@@ -219,55 +265,94 @@ const ProductManagement = () => {
 
   const handleExport = () => {
     if (!filtered.length) { toast.error('No products to export'); return; }
-    exportToExcel(
-      filtered.map((p) => ({
-        code: p.productCode || '', hsn: p.hsnSacCode || '', name: p.productName, brand: p.brand || '',
-        category: p.category || '', unit: p.unit, mrp: p.price,
-        purchasePrice: p.purchasePrice || 0, taxType: p.taxType,
-        gst: p.taxPercentage, qty: p.quantity, discount: p.discountPercentage,
+    const baseColumns = [
+      { header: 'Code', key: 'code', width: 12 },
+      { header: 'HSN/SAC Code', key: 'hsn', width: 14 },
+      { header: 'Product Name', key: 'name', width: 25 },
+      { header: 'Brand', key: 'brand', width: 15 },
+      { header: 'Category', key: 'category', width: 15 },
+      { header: 'Unit', key: 'unit', width: 10 },
+      { header: 'MRP (₹)', key: 'mrp', width: 12 },
+      { header: 'Purchase Price (₹)', key: 'purchasePrice', width: 18 },
+      { header: 'Tax Type', key: 'taxType', width: 12 },
+      { header: 'GST (%)', key: 'gst', width: 10 },
+      { header: 'Quantity', key: 'qty', width: 10 },
+      { header: 'Discount (%)', key: 'discount', width: 12 },
+      { header: 'Description', key: 'description', width: 30 },
+    ];
+    const usdColumns = [
+      { header: 'Currency', key: 'currency', width: 10 },
+      { header: 'Purchase Price (USD)', key: 'purchasePriceUsd', width: 20 },
+      { header: 'Shipping Cost (USD)', key: 'shippingCostUsd', width: 18 },
+      { header: 'Duty GST (%)', key: 'dutyGstPercent', width: 14 },
+      { header: 'Clearance Cost (₹)', key: 'clearanceCost', width: 18 },
+    ];
+    const columns = showUsdPurchase ? [...baseColumns, ...usdColumns] : baseColumns;
+    const exportData = filtered.map((p) => {
+      const row: any = {
+        code: p.productCode || '',
+        hsn: p.hsnSacCode || '',
+        name: p.productName,
+        brand: p.brand || '',
+        category: p.category || '',
+        unit: p.unit,
+        mrp: p.price,
+        purchasePrice: p.purchasePrice || 0,
+        taxType: p.taxType,
+        gst: p.taxPercentage,
+        qty: p.quantity,
+        discount: p.discountPercentage,
         description: p.description || '',
-      })),
-      [
-        { header: 'Code', key: 'code', width: 12 },
-        { header: 'HSN/SAC Code', key: 'hsn', width: 14 },
-        { header: 'Product Name', key: 'name', width: 25 },
-        { header: 'Brand', key: 'brand', width: 15 },
-        { header: 'Category', key: 'category', width: 15 },
-        { header: 'Unit', key: 'unit', width: 10 },
-        { header: 'MRP (₹)', key: 'mrp', width: 12 },
-        { header: 'Purchase Price (₹)', key: 'purchasePrice', width: 18 },
-        { header: 'Tax Type', key: 'taxType', width: 12 },
-        { header: 'GST (%)', key: 'gst', width: 10 },
-        { header: 'Quantity', key: 'qty', width: 10 },
-        { header: 'Discount (%)', key: 'discount', width: 12 },
-        { header: 'Description', key: 'description', width: 30 },
-      ],
-      'products'
-    );
+      };
+      if (showUsdPurchase) {
+        row.currency = p.purchasePriceCurrency || 'INR';
+        row.purchasePriceUsd = p.purchasePriceUsd ?? '';
+        row.shippingCostUsd = p.shippingCostUsd ?? '';
+        row.dutyGstPercent = p.dutyGstPercent ?? '';
+        row.clearanceCost = p.clearanceCost ?? '';
+      }
+      return row;
+    });
+    exportToExcel(exportData, columns, 'products');
     toast.success('Products exported to Excel');
   };
 
   // Download a blank template so users know the column format
   const handleDownloadTemplate = () => {
-    exportToExcel(
-      [{ code: 'SKU-001', hsn: '95069100', name: 'Sample Product', brand: 'Brand', category: 'Category', unit: 'piece', mrp: 100, purchasePrice: 80, taxType: 'GST', gst: 18, qty: 10, discount: 0, description: 'Product description' }],
-      [
-        { header: 'Code', key: 'code', width: 12 },
-        { header: 'HSN/SAC Code', key: 'hsn', width: 14 },
-        { header: 'Product Name *', key: 'name', width: 25 },
-        { header: 'Brand', key: 'brand', width: 15 },
-        { header: 'Category', key: 'category', width: 15 },
-        { header: 'Unit', key: 'unit', width: 10 },
-        { header: 'MRP (₹) *', key: 'mrp', width: 12 },
-        { header: 'Purchase Price (₹)', key: 'purchasePrice', width: 18 },
-        { header: 'Tax Type (GST/IGST/No Tax)', key: 'taxType', width: 22 },
-        { header: 'GST (%)', key: 'gst', width: 10 },
-        { header: 'Quantity *', key: 'qty', width: 10 },
-        { header: 'Discount (%)', key: 'discount', width: 12 },
-        { header: 'Description', key: 'description', width: 30 },
-      ],
-      'product_import_template'
-    );
+    const baseColumns = [
+      { header: 'Code', key: 'code', width: 12 },
+      { header: 'HSN/SAC Code', key: 'hsn', width: 14 },
+      { header: 'Product Name *', key: 'name', width: 25 },
+      { header: 'Brand', key: 'brand', width: 15 },
+      { header: 'Category', key: 'category', width: 15 },
+      { header: 'Unit', key: 'unit', width: 10 },
+      { header: 'MRP (₹) *', key: 'mrp', width: 12 },
+      { header: 'Purchase Price (₹)', key: 'purchasePrice', width: 18 },
+      { header: 'Tax Type (GST/IGST/No Tax)', key: 'taxType', width: 22 },
+      { header: 'GST (%)', key: 'gst', width: 10 },
+      { header: 'Quantity *', key: 'qty', width: 10 },
+      { header: 'Discount (%)', key: 'discount', width: 12 },
+      { header: 'Description', key: 'description', width: 30 },
+    ];
+    const usdColumns = [
+      { header: 'Purchase Price (USD)', key: 'purchasePriceUsd', width: 20 },
+      { header: 'Shipping Cost (USD)', key: 'shippingCostUsd', width: 18 },
+      { header: 'Duty GST (%)', key: 'dutyGstPercent', width: 14 },
+      { header: 'Clearance Cost (₹)', key: 'clearanceCost', width: 18 },
+    ];
+    const columns = showUsdPurchase ? [...baseColumns, ...usdColumns] : baseColumns;
+    const sampleRow: any = {
+      code: 'SKU-001', hsn: '95069100', name: 'Sample Product', brand: 'Brand',
+      category: 'Category', unit: 'piece', mrp: 100, purchasePrice: 0,
+      taxType: 'GST', gst: 18, qty: 10, discount: 0, description: 'Product description',
+    };
+    if (showUsdPurchase) {
+      sampleRow.purchasePriceUsd = 10;
+      sampleRow.shippingCostUsd = 2;
+      sampleRow.dutyGstPercent = 31;
+      sampleRow.clearanceCost = 500;
+    }
+    exportToExcel([sampleRow], columns, 'product_import_template');
     toast.success('Template downloaded — fill it and import');
   };
 
@@ -288,22 +373,57 @@ const ProductManagement = () => {
       if (!rows.length) { toast.error('File is empty'); return; }
 
       // Map Excel columns → ProductRequest — column headers match the template
-      const products: ProductRequest[] = rows.map((row) => ({
-        productCode:        String(row['Code'] || ''),
-        hsnSacCode:         String(row['HSN/SAC Code'] || row['HSN'] || row['SAC'] || ''),
-        productName:        String(row['Product Name *'] || row['Product Name'] || ''),
-        brand:              String(row['Brand'] || ''),
-        category:           String(row['Category'] || ''),
-        unit:               String(row['Unit'] || 'piece'),
-        price:              Number(row['MRP (₹) *'] ?? row['MRP (₹)'] ?? row['price'] ?? 0),
-        purchasePrice:      Number(row['Purchase Price (₹)'] ?? row['purchasePrice'] ?? 0),
-        taxType:            String(row['Tax Type (GST/IGST/No Tax)'] || row['Tax Type'] || row['taxType'] || 'GST'),
-        taxPercentage:      Number(row['GST (%)'] ?? row['gst'] ?? 0),
-        quantity:           Number(row['Quantity *'] ?? row['Quantity'] ?? row['qty'] ?? 0),
-        discountPercentage: Number(row['Discount (%)'] ?? row['discount'] ?? 0),
-        description:        String(row['Description'] || row['description'] || ''),
-        imagePath:          '',  // images not supported in bulk upload
-      }));
+      const products: ProductRequest[] = rows.map((row) => {
+        const purchasePriceUsdVal = row['Purchase Price (USD)'] !== '' && row['Purchase Price (USD)'] !== undefined
+          ? Number(row['Purchase Price (USD)'])
+          : undefined;
+        const shippingCostUsdVal = row['Shipping Cost (USD)'] !== '' && row['Shipping Cost (USD)'] !== undefined
+          ? Number(row['Shipping Cost (USD)'])
+          : undefined;
+        const dutyGstVal = row['Duty GST (%)'] !== '' && row['Duty GST (%)'] !== undefined
+          ? Number(row['Duty GST (%)'])
+          : 31;
+        const clearanceCostVal = row['Clearance Cost (₹)'] !== '' && row['Clearance Cost (₹)'] !== undefined
+          ? Number(row['Clearance Cost (₹)'])
+          : undefined;
+
+        // If USD purchase price is given, derive purchasePrice in INR automatically
+        let purchasePriceInr = Number(row['Purchase Price (₹)'] ?? row['purchasePrice'] ?? 0);
+        let currency = 'INR';
+        if (purchasePriceUsdVal && purchasePriceUsdVal > 0) {
+          currency = 'USD';
+          const itemUsd = purchasePriceUsdVal;
+          const shipUsd = shippingCostUsdVal ?? 0;
+          const duty = dutyGstVal / 100;
+          const clearance = clearanceCostVal ?? 0;
+          // Total cost per unit in INR
+          const totalUsd = itemUsd + shipUsd;
+          purchasePriceInr = Math.round((totalUsd * (1 + duty) * usdExchangeRate + clearance) * 100) / 100;
+        }
+
+        return {
+          productCode:        String(row['Code'] || ''),
+          hsnSacCode:         String(row['HSN/SAC Code'] || row['HSN'] || row['SAC'] || ''),
+          productName:        String(row['Product Name *'] || row['Product Name'] || ''),
+          brand:              String(row['Brand'] || ''),
+          category:           String(row['Category'] || ''),
+          unit:               String(row['Unit'] || 'piece'),
+          price:              Number(row['MRP (₹) *'] ?? row['MRP (₹)'] ?? row['price'] ?? 0),
+          purchasePrice:      purchasePriceInr,
+          taxType:            String(row['Tax Type (GST/IGST/No Tax)'] || row['Tax Type'] || row['taxType'] || 'GST'),
+          taxPercentage:      Number(row['GST (%)'] ?? row['gst'] ?? 0),
+          quantity:           Number(row['Quantity *'] ?? row['Quantity'] ?? row['qty'] ?? 0),
+          discountPercentage: Number(row['Discount (%)'] ?? row['discount'] ?? 0),
+          description:        String(row['Description'] || row['description'] || ''),
+          imagePath:          '',  // images not supported in bulk upload
+          // USD fields
+          purchasePriceCurrency: currency,
+          purchasePriceUsd:   purchasePriceUsdVal,
+          shippingCostUsd:    shippingCostUsdVal,
+          dutyGstPercent:     dutyGstVal,
+          clearanceCost:      clearanceCostVal,
+        };
+      });
 
       const result = await productService.bulkCreate(products);
       if (result.created > 0) {
@@ -372,7 +492,7 @@ const ProductManagement = () => {
             <p className="text-muted-foreground">Manage your product catalog</p>
           </div>
           <div className="flex items-center gap-3">
-            <SearchBar value={searchTerm} onChange={setSearchTerm} placeholder="Search by name, brand, category..." className="w-72" />
+            <SearchBar value={searchTerm} onChange={setSearchTerm} placeholder="Search I Num or Cust Name" className="w-72" />
             <ExportButton onClick={handleExport} disabled={!filtered.length} count={filtered.length} />
             {/* Bulk upload template download */}
             <button
@@ -459,7 +579,15 @@ const ProductManagement = () => {
                         </td>
                         <td className="px-4 py-3 text-right font-semibold text-foreground">₹{Number(p.price).toFixed(2)}</td>
                         <td className="px-4 py-3 text-right text-muted-foreground">
-                          {p.purchasePrice ? `₹${Number(p.purchasePrice).toFixed(2)}` : '—'}
+                          {p.purchasePriceCurrency === 'USD' && p.purchasePriceUsd ? (
+                            <div>
+                              <span className="font-medium text-blue-600 dark:text-blue-400 font-mono">${Number(p.purchasePriceUsd).toFixed(2)}</span>
+                              <br />
+                              <span className="text-xs">₹{Number(p.purchasePrice).toFixed(2)}</span>
+                            </div>
+                          ) : (
+                            p.purchasePrice ? `₹${Number(p.purchasePrice).toFixed(2)}` : '—'
+                          )}
                         </td>
                         <td className="px-4 py-3 text-center text-muted-foreground">{p.unit}</td>
                         <td className="px-4 py-3 text-center">
@@ -548,9 +676,145 @@ const ProductManagement = () => {
                 </p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {field('MRP / Selling Price (₹)', 'price', 'number', true, '0.00')}
-                {field('Purchase Price (₹)', 'purchasePrice', 'number', false, '0.00')}
+                {field('Unit Price (₹)', 'price', 'number', true, '0.00')}
+                {/* Purchase price — tabbed when USD mode is on */}
+                {!showUsdPurchase && field('Purchase Price (₹)', 'purchasePrice', 'number', false, '0.00')}
               </div>
+
+              {/* Purchase Price tabs — International (USD) / Local (INR) */}
+              {showUsdPurchase && (() => {
+                const itemUsd = formData.purchasePriceUsd ?? 0;
+                const shipUsd = formData.shippingCostUsd ?? 0;
+                const dutyPct = formData.dutyGstPercent ?? 31;
+                const clearance = formData.clearanceCost ?? 0;
+                const totalUsd = itemUsd + shipUsd;
+                const gstDutyUsd = totalUsd * (dutyPct / 100);
+                const totalCostInr = (totalUsd + gstDutyUsd) * usdExchangeRate + clearance;
+                const profit = (formData.price ?? 0) - totalCostInr;
+                return (
+                  <div className="rounded-xl border border-border overflow-hidden">
+                    {/* Tab bar */}
+                    <div className="flex border-b border-border">
+                      <button
+                        type="button"
+                        onClick={() => { setPurchaseTab('local'); setFormData(p => ({ ...p, purchasePriceCurrency: 'INR' })); }}
+                        className={`flex-1 py-2 text-xs font-semibold transition-colors ${purchaseTab === 'local' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'}`}
+                      >
+                        🇮🇳 Local Purchase (₹ INR)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setPurchaseTab('international'); setFormData(p => ({ ...p, purchasePriceCurrency: 'USD' })); }}
+                        className={`flex-1 py-2 text-xs font-semibold transition-colors ${purchaseTab === 'international' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'}`}
+                      >
+                        🌐 International Purchase ($ USD)
+                      </button>
+                    </div>
+
+                    <div className="p-4 space-y-4">
+                      {purchaseTab === 'local' && (
+                        <div>
+                          <label className="block text-sm font-medium text-foreground mb-1.5">Purchase Price (₹)</label>
+                          <input
+                            type="number" min={0} step="any"
+                            value={formData.purchasePrice === 0 ? '' : formData.purchasePrice}
+                            onChange={(e) => setFormData(p => ({ ...p, purchasePrice: e.target.value === '' ? 0 : parseFloat(e.target.value) }))}
+                            className="input-field" placeholder="0.00"
+                          />
+                          <p className="text-xs text-muted-foreground mt-1">Local purchase / cost price in Indian Rupees</p>
+                        </div>
+                      )}
+
+                      {purchaseTab === 'international' && (
+                        <>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-sm font-medium text-foreground mb-1.5">
+                                Item Value (USD) <span className="text-muted-foreground font-normal">per unit</span>
+                              </label>
+                              <div className="relative">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-mono">$</span>
+                                <input type="number" min={0} step="any"
+                                  value={formData.purchasePriceUsd ?? ''}
+                                  onChange={(e) => setFormData(p => ({ ...p, purchasePriceUsd: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
+                                  className="input-field pl-7" placeholder="0.00" />
+                              </div>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-foreground mb-1.5">
+                                Shipping Cost (USD) <span className="text-muted-foreground font-normal">per unit</span>
+                              </label>
+                              <div className="relative">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-mono">$</span>
+                                <input type="number" min={0} step="any"
+                                  value={formData.shippingCostUsd ?? ''}
+                                  onChange={(e) => setFormData(p => ({ ...p, shippingCostUsd: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
+                                  className="input-field pl-7" placeholder="0.00" />
+                              </div>
+                              <p className="text-xs text-muted-foreground mt-1">Based on CBM × rate</p>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-foreground mb-1.5">
+                                GST + Duty (%)
+                              </label>
+                              <input type="number" min={0} max={100} step="0.5"
+                                value={formData.dutyGstPercent ?? 31}
+                                onChange={(e) => setFormData(p => ({ ...p, dutyGstPercent: e.target.value === '' ? 31 : parseFloat(e.target.value) }))}
+                                className="input-field" placeholder="31" />
+                              <p className="text-xs text-muted-foreground mt-1">Applied on item + shipping</p>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-foreground mb-1.5">
+                                Clearance Cost (₹) <span className="text-muted-foreground font-normal">per unit</span>
+                              </label>
+                              <div className="relative">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">₹</span>
+                                <input type="number" min={0} step="any"
+                                  value={formData.clearanceCost ?? ''}
+                                  onChange={(e) => setFormData(p => ({ ...p, clearanceCost: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
+                                  className="input-field pl-7" placeholder="0.00" />
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Cost breakdown card */}
+                          {(itemUsd > 0 || shipUsd > 0) && (
+                            <div className="bg-muted/40 rounded-lg p-3 space-y-1.5 text-xs">
+                              <p className="font-semibold text-foreground text-xs mb-2">📊 Total Purchase Cost (per unit @ ₹{usdExchangeRate}/$)</p>
+                              <div className="flex justify-between text-muted-foreground">
+                                <span>① Item value</span>
+                                <span className="font-mono">${itemUsd.toFixed(2)} = ₹{(itemUsd * usdExchangeRate).toFixed(2)}</span>
+                              </div>
+                              <div className="flex justify-between text-muted-foreground">
+                                <span>② Shipping</span>
+                                <span className="font-mono">${shipUsd.toFixed(2)} = ₹{(shipUsd * usdExchangeRate).toFixed(2)}</span>
+                              </div>
+                              <div className="flex justify-between text-muted-foreground">
+                                <span>③ GST + Duty ({dutyPct}%)</span>
+                                <span className="font-mono">${gstDutyUsd.toFixed(2)} = ₹{(gstDutyUsd * usdExchangeRate).toFixed(2)}</span>
+                              </div>
+                              <div className="flex justify-between text-muted-foreground">
+                                <span>④ Clearance</span>
+                                <span className="font-mono">₹{clearance.toFixed(2)}</span>
+                              </div>
+                              <div className="border-t border-border pt-1.5 flex justify-between font-semibold text-foreground">
+                                <span>Total Cost (INR)</span>
+                                <span className="font-mono text-orange-600 dark:text-orange-400">₹{totalCostInr.toFixed(2)}</span>
+                              </div>
+                              {(formData.price ?? 0) > 0 && (
+                                <div className={`flex justify-between font-semibold pt-0.5 ${profit >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                                  <span>Profit / unit</span>
+                                  <span className="font-mono">{profit >= 0 ? '+' : ''}₹{profit.toFixed(2)}</span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-1.5">Unit</label>
@@ -590,23 +854,6 @@ const ProductManagement = () => {
                   <label className="block text-sm font-medium text-foreground mb-1.5">Expiry Date</label>
                   <input type="date" value={formData.expiryDate || ''} onChange={(e) => setFormData((p) => ({ ...p, expiryDate: e.target.value }))} className="input-field" />
                 </div>
-              </div>
-
-              {/* HSN/SAC Code */}
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1.5">
-                  HSN / SAC Code
-                  <span className="text-xs text-muted-foreground ml-2">(optional)</span>
-                </label>
-                <input
-                  type="text"
-                  value={formData.hsnCode || ''}
-                  onChange={(e) => setFormData((p) => ({ ...p, hsnCode: e.target.value }))}
-                  placeholder="e.g. 9506, 8471"
-                  maxLength={20}
-                  className="input-field"
-                />
-                <p className="text-xs text-muted-foreground mt-1">HSN (goods) or SAC (services) code for GST invoices</p>
               </div>
 
               {/* Description */}

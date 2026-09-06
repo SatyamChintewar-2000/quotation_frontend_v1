@@ -29,6 +29,12 @@ interface Product {
   cbm?: number;
   // HSN/SAC code for GST compliance
   hsnSacCode?: string;
+  // International Purchase (USD) fields
+  purchasePriceCurrency?: string;
+  purchasePriceUsd?: number;
+  shippingCostUsd?: number;
+  dutyGstPercent?: number;
+  clearanceCost?: number;
 }
 
 interface ProductContextType {
@@ -65,6 +71,12 @@ const mapAPIProductToProduct = (apiProduct: APIProduct): Product => ({
   netWeight: apiProduct.netWeight,
   cbm: apiProduct.cbm,
   hsnSacCode: apiProduct.hsnSacCode,
+  // International Purchase (USD) fields
+  purchasePriceCurrency: apiProduct.purchasePriceCurrency,
+  purchasePriceUsd: apiProduct.purchasePriceUsd,
+  shippingCostUsd: apiProduct.shippingCostUsd,
+  dutyGstPercent: apiProduct.dutyGstPercent,
+  clearanceCost: apiProduct.clearanceCost,
 });
 
 // Helper function to map frontend product to API request
@@ -84,6 +96,12 @@ const mapProductToAPIRequest = (product: Omit<Product, 'id'> | Partial<Product>)
   netWeight: product.netWeight,
   cbm: product.cbm,
   hsnSacCode: product.hsnSacCode,
+  // International Purchase (USD) fields
+  purchasePriceCurrency: product.purchasePriceCurrency,
+  purchasePriceUsd: product.purchasePriceUsd,
+  shippingCostUsd: product.shippingCostUsd,
+  dutyGstPercent: product.dutyGstPercent,
+  clearanceCost: product.clearanceCost,
 });
 
 export const ProductProvider = ({ children }: { children: ReactNode }) => {

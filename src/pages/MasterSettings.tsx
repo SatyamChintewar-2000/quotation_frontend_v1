@@ -992,8 +992,8 @@ const MasterSettings: React.FC = () => {
                         {/* USD Exchange Rate */}
                         <div>
                           <label className="block text-sm font-medium text-foreground mb-1.5">USD Exchange Rate (₹ per $1)</label>
-                          <input type="number" value={companyForm.usdExchangeRate ?? 83} min="1" step="0.01"
-                            onChange={(e) => { setCompanyForm((p) => ({ ...p, usdExchangeRate: parseFloat(e.target.value) || 83 })); setCompanyDirty(true); }}
+                          <input type="number" value={companyForm.usdExchangeRate ?? ''} min="1" step="0.01"
+                            onChange={(e) => { setCompanyForm((p) => ({ ...p, usdExchangeRate: e.target.value === '' ? undefined : parseFloat(e.target.value) })); setCompanyDirty(true); }}
                             className="input-field" placeholder="e.g. 83" />
                           <p className="text-xs text-muted-foreground mt-1">₹ per $1 — used to convert USD prices</p>
                         </div>
@@ -1001,8 +1001,8 @@ const MasterSettings: React.FC = () => {
                         {/* Rate per CBM */}
                         <div>
                           <label className="block text-sm font-medium text-foreground mb-1.5">Rate per CBM (USD / m³)</label>
-                          <input type="number" value={companyForm.ratePerCbm ?? 0} min="0" step="0.01"
-                            onChange={(e) => { setCompanyForm((p) => ({ ...p, ratePerCbm: parseFloat(e.target.value) || 0 })); setCompanyDirty(true); }}
+                          <input type="number" value={companyForm.ratePerCbm ?? ''} min="0" step="0.01"
+                            onChange={(e) => { setCompanyForm((p) => ({ ...p, ratePerCbm: e.target.value === '' ? undefined : parseFloat(e.target.value) })); setCompanyDirty(true); }}
                             className="input-field" placeholder="e.g. 25" />
                           <p className="text-xs text-muted-foreground mt-1">USD freight charged per cubic metre</p>
                         </div>
@@ -1010,8 +1010,8 @@ const MasterSettings: React.FC = () => {
                         {/* Clearance per CBM */}
                         <div>
                           <label className="block text-sm font-medium text-foreground mb-1.5">Clearance per CBM (₹ / m³)</label>
-                          <input type="number" value={companyForm.clearancePerCbm ?? 1667} min="0" step="1"
-                            onChange={(e) => { setCompanyForm((p) => ({ ...p, clearancePerCbm: parseFloat(e.target.value) || 1667 })); setCompanyDirty(true); }}
+                          <input type="number" value={companyForm.clearancePerCbm ?? ''} min="0" step="1"
+                            onChange={(e) => { setCompanyForm((p) => ({ ...p, clearancePerCbm: e.target.value === '' ? undefined : parseFloat(e.target.value) })); setCompanyDirty(true); }}
                             className="input-field" placeholder="e.g. 1667" />
                           <p className="text-xs text-muted-foreground mt-1">Customs clearance cost per m³ in INR</p>
                         </div>
