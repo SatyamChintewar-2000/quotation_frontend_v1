@@ -30,7 +30,10 @@ interface QuotationItem {
   productDescriptionSnapshot?: string;
   // Weight & CBM snapshots captured at time of quoting
   netWeightSnapshot?: number;
+  stackWeightSnapshot?: number;
   cbmSnapshot?: number;
+  // USD purchase price from product
+  purchasePriceUsd?: number;
 }
 
 interface QuotationData {

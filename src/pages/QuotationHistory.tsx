@@ -320,11 +320,39 @@ const QuotationHistory = () => {
     }
   };
 
+  // Download landscape Export PDF (CBM layout) — matches ThereQuotation Excel format
+  const downloadExportPdf = async () => {
+    if (!viewingQuotation) return;
+    try {
+      setDownloading(true);
+      const { generateExportPdf } = await import('@/utils/generateQuotationPdf');
+      const { companyService }    = await import('@/services/companyService');
+
+      let company: any = cbmExcelCompany || {};
+      if (!company.companyName) {
+        try { company = await companyService.getMyCompany(); } catch { /* use empty */ }
+      }
+
+      await generateExportPdf(
+        viewingQuotation,
+        company,
+        `export-${viewingQuotation.quotationNumber || viewingQuotation.id}.pdf`,
+      );
+      toast.success('Export PDF downloaded');
+    } catch (err) {
+      console.error('Export PDF failed:', err);
+      toast.error('Failed to generate export PDF');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   // Download CBM Excel (3-sheet) — values in Master, formulas in Sheet2
   const downloadCbmExcel = async () => {
     if (!viewingQuotation || !cbmExcelCompany) return;
     try {
-      const XLSX = await import('xlsx');
+      // Use xlsx-js-style for full cell colour support (drop-in replacement for xlsx)
+      const XLSX = await import('xlsx-js-style') as any;
       const q  = viewingQuotation;
       const co = cbmExcelCompany;
 
@@ -374,7 +402,9 @@ const QuotationHistory = () => {
         const qty    = Number(item.quantity ?? 1);
         const discP  = unitP * (1 - disc / 100);
         const total  = discP * qty;
-        const usd    = Number((discP / exchRate).toFixed(0));
+        // Use stored USD price from product if available; fall back to INR-derived
+        const storedUsd = Number(item.purchasePriceUsd ?? 0);
+        const usd    = Math.round(storedUsd > 0 ? storedUsd : discP / exchRate);
         const totU   = usd * qty;
         const cbm    = Number(item.cbmSnapshot ?? 0);
         const totC   = Number((cbm * qty).toFixed(4));
@@ -408,6 +438,71 @@ const QuotationHistory = () => {
         {wch:5},{wch:10},{wch:28},{wch:8},{wch:8},{wch:12},
         {wch:12},{wch:14},{wch:5},{wch:12},{wch:8},{wch:5},{wch:12},{wch:7},{wch:10},
       ];
+
+      // ── Cell styling: match ThereQuotation colours ────────────────────────
+      // Columns (0-based): K=10(USD) L=11(QTY) M=12(TotalUSD) → Yellow
+      //                    N=13(CBM) O=14(TotalCBM)            → Light green
+      // Row 8 (Excel) = aoa index 7 = header row
+      const thin = (rgb = '000000') => ({ style: 'thin', color: { rgb } });
+      const allBorders = { top: thin(), bottom: thin(), left: thin(), right: thin() };
+
+      const FILLS = {
+        grey:   { patternType: 'solid', fgColor: { rgb: 'BFBFBF' } },
+        yellow: { patternType: 'solid', fgColor: { rgb: 'FFFF00' } },
+        lgreen: { patternType: 'solid', fgColor: { rgb: 'C6EFCE' } },
+        lgrey:  { patternType: 'solid', fgColor: { rgb: 'F2F2F2' } },
+      };
+      const boldFont   = { bold: true, sz: 10 };
+      const normalFont = { sz: 10 };
+      const centerAlign = { horizontal: 'center', vertical: 'center', wrapText: true };
+
+      const sc = (addr: string, style: any) => {
+        if (!ws1[addr]) ws1[addr] = { t: 'z', v: '' };
+        ws1[addr].s = style;
+      };
+
+      const COL = ['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O'];
+
+      // Header row (Excel row 8 = aoa index 7)
+      const HDR = 8;
+      COL.forEach((col, i) => {
+        let fill = FILLS.grey;
+        if (i >= 10 && i <= 12) fill = FILLS.yellow;
+        if (i >= 13)            fill = FILLS.lgreen;
+        sc(`${col}${HDR}`, { fill, font: boldFont, alignment: centerAlign, border: allBorders });
+      });
+
+      // Discount value cell — row 7, col M (position 12 in aoa row 6)
+      sc('M7', { fill: FILLS.yellow, font: boldFont, alignment: centerAlign, border: allBorders });
+
+      // Data rows
+      const DSTART = HDR + 1;
+      const DEND   = HDR + (q.items as any[]).length;
+      for (let r = DSTART; r <= DEND; r++) {
+        ['K','L','M'].forEach(col =>
+          sc(`${col}${r}`, { fill: FILLS.yellow, font: normalFont, alignment: centerAlign, border: allBorders }));
+        ['N','O'].forEach(col =>
+          sc(`${col}${r}`, { fill: FILLS.lgreen, font: normalFont, alignment: centerAlign, border: allBorders }));
+        ['E','F'].forEach(col =>
+          sc(`${col}${r}`, { fill: FILLS.lgrey, font: normalFont, alignment: centerAlign, border: allBorders }));
+      }
+
+      // Totals row (blank row after data, then totals)
+      const TROW = DEND + 2;
+      ['K','L','M'].forEach(col => sc(`${col}${TROW}`, { fill: FILLS.yellow, font: boldFont, border: allBorders }));
+      ['N','O'].forEach(col =>    sc(`${col}${TROW}`, { fill: FILLS.lgreen, font: boldFont, border: allBorders }));
+      sc(`C${TROW}`, { font: boldFont });
+      sc(`J${TROW}`, { font: boldFont });
+
+      // Merge company header rows B1:J5
+      ws1['!merges'] = [
+        { s: { r: 0, c: 1 }, e: { r: 0, c: 9 } },
+        { s: { r: 1, c: 1 }, e: { r: 1, c: 9 } },
+        { s: { r: 2, c: 1 }, e: { r: 2, c: 9 } },
+        { s: { r: 3, c: 1 }, e: { r: 3, c: 9 } },
+        { s: { r: 4, c: 1 }, e: { r: 4, c: 9 } },
+      ];
+
       XLSX.utils.book_append_sheet(wb, ws1, 'Master Feb22');
 
       // ── SHEET 2: Cost Analysis — values + formulas for user to change rates ──
@@ -511,7 +606,7 @@ const QuotationHistory = () => {
       ws3['!cols'] = [{wch:10},{wch:10}];
       XLSX.utils.book_append_sheet(wb, ws3, 'Sheet3');
 
-      XLSX.writeFile(wb, `quotation-cbm-${qNo}.xlsx`);
+      XLSX.writeFile(wb, `quotation-cbm-${qNo}.xlsx`, { cellStyles: true });
       toast.success('CBM Excel downloaded');
     } catch (err) {
       console.error('CBM Excel failed:', err);
@@ -707,6 +802,17 @@ const QuotationHistory = () => {
                   {downloading ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}
                   {downloading ? 'Generating...' : 'Download PDF'}
                 </button>
+                {cbmExcelCompany && (
+                  <button
+                    onClick={() => downloadExportPdf()}
+                    disabled={downloading || viewLoading}
+                    className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium disabled:opacity-60"
+                    title="Download landscape export PDF with USD, CBM and freight summary"
+                  >
+                    {downloading ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}
+                    Export PDF (CBM)
+                  </button>
+                )}
                 <button onClick={() => setViewingQuotation(null)} className="p-2 rounded-lg hover:bg-gray-100 transition-colors text-gray-500">
                   <X size={20} />
                 </button>

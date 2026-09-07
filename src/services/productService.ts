@@ -26,6 +26,7 @@ export interface Product {
   active?: boolean;
   // Optional: weight and volume per unit (for export/logistics quotations)
   netWeight?: number;
+  stackWeight?: number;  // gross/stack weight including packaging (kg)
   cbm?: number;
   // International Purchase (USD) fields
   purchasePriceCurrency?: string;   // "INR" | "USD"
@@ -55,6 +56,7 @@ export interface ProductRequest {
   companyId?: number; // Required for SUPER_ADMIN
   // Optional: weight and volume per unit (for export/logistics quotations)
   netWeight?: number;
+  stackWeight?: number;  // gross/stack weight including packaging (kg)
   cbm?: number;
   // International Purchase (USD) fields
   purchasePriceCurrency?: string;   // "INR" | "USD"

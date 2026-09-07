@@ -38,7 +38,10 @@ export interface PdfItem {
   productDescriptionSnapshot?: string;
   // Weight & CBM snapshots
   netWeightSnapshot?: number;
+  stackWeightSnapshot?: number; // gross/stack weight snapshot at quoting time
   cbmSnapshot?: number;
+  // USD purchase price — stored directly on product, not derived from INR
+  purchasePriceUsd?: number;
   // HSN/SAC code
   hsnSacCode?: string;
 }
@@ -1030,7 +1033,7 @@ export async function generateQuotationPdf(
 //   Total INR | GST | Grand Total | Total USD | Total CBM
 //   Shipping Cost USD | Shipping Cost INR | Grand Total USD
 // ─────────────────────────────────────────────────────────────────────────────
-async function generateExportPdf(
+export async function generateExportPdf(
   q: PdfQuotation,
   company: PdfCompany,
   filename: string,
@@ -1119,7 +1122,7 @@ async function generateExportPdf(
     const cols: { lbl: string; x: number; w: number; al: 'left'|'right'|'center' }[] = [
       { lbl: 'Sr.',             x: LML,                                                               w: EC_SR,   al: 'center' },
       { lbl: 'Model / Name',    x: LML+EC_SR,                                                         w: EC_NAME, al: 'left'   },
-      { lbl: 'N.W.(kg)',        x: LML+EC_SR+EC_NAME,                                                 w: EC_NW,   al: 'right'  },
+      { lbl: 'N.W./S.W.(kg)',   x: LML+EC_SR+EC_NAME,                                                 w: EC_NW,   al: 'right'  },
       { lbl: 'Unit Price',      x: LML+EC_SR+EC_NAME+EC_NW,                                           w: EC_UP,   al: 'right'  },
       { lbl: 'Disc.Price',      x: LML+EC_SR+EC_NAME+EC_NW+EC_UP,                                     w: EC_DP,   al: 'right'  },
       { lbl: 'QTY',             x: LML+EC_SR+EC_NAME+EC_NW+EC_UP+EC_DP,                               w: EC_QTY,  al: 'center' },
@@ -1164,12 +1167,16 @@ async function generateExportPdf(
     const qty         = item.quantity;
     const totalInr    = discPrice * qty;
     const gstAmt      = totalInr * tax / 100;
-    const usdPerUnit  = discPrice / exchRate;
+    // USD: use product's stored USD price if available; otherwise derive from discounted INR price
+    const storedUsd   = Number(item.purchasePriceUsd) || 0;
+    const usdPerUnit  = Math.round(storedUsd > 0 ? storedUsd : discPrice / exchRate);
     const totalUsd    = usdPerUnit * qty;
-    const cbm         = Number(item.cbmSnapshot)        || 0;
-    const nw          = Number(item.netWeightSnapshot)  || 0;
+    const cbm         = Number(item.cbmSnapshot)         || 0;
+    const nw          = Number(item.netWeightSnapshot)   || 0;
+    const sw          = Number(item.stackWeightSnapshot) || 0;
     const totalCbm    = cbm * qty;
     const totalNw     = nw  * qty;
+    const totalSw     = sw  * qty;
     const name        = item.productNameSnapshot || item.productName || '—';
 
     totINR    += totalInr;
@@ -1227,11 +1234,14 @@ async function generateExportPdf(
       if (sub) pdf.text(sub, LML + EC_SR + P, nameY + 3);
     }
 
-    // N.W.
+    // N.W. — show both net and stack weight if available
     pdf.setFontSize(6.5);
     pdf.setFont('helvetica', 'normal');
     st(pdf, 55, 65, 81);
-    pdf.text(nw > 0 ? nw.toFixed(1) : '—',
+    const nwLabel = nw > 0
+      ? (sw > 0 ? `${nw.toFixed(1)}/${sw.toFixed(1)}` : nw.toFixed(1))
+      : '—';
+    pdf.text(nwLabel,
       LML + EC_SR + EC_NAME + EC_NW - P, midY, { align: 'right' });
 
     // Unit Price

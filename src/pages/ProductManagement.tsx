@@ -27,11 +27,10 @@ const EMPTY: ProductRequest = {
   description: '', price: 0, purchasePrice: 0,
   unit: 'piece', quantity: 0, discountPercentage: 0,
   taxType: 'GST', taxPercentage: 18, expiryDate: '', imagePath: '', hsnCode: '',
-  netWeight: undefined, cbm: undefined,
+  netWeight: undefined, cbm: undefined, stackWeight: undefined,
   // USD fields
   purchasePriceCurrency: 'INR',
-  purchasePriceUsd: undefined, shippingCostUsd: undefined,
-  dutyGstPercent: 31, clearanceCost: undefined,
+  purchasePriceUsd: undefined,
 };
 
 const ProductManagement = () => {
@@ -105,14 +104,12 @@ const ProductManagement = () => {
       createdBy: Number(p.createdBy) || 0,
       active: true,
       netWeight: p.netWeight,
+      stackWeight: p.stackWeight,
       cbm: p.cbm,
       hsnSacCode: p.hsnSacCode || '',
       // USD fields
       purchasePriceCurrency: p.purchasePriceCurrency || 'INR',
       purchasePriceUsd: p.purchasePriceUsd,
-      shippingCostUsd: p.shippingCostUsd,
-      dutyGstPercent: p.dutyGstPercent ?? 31,
-      clearanceCost: p.clearanceCost,
     } as Product));
     setProducts(mapped);
     setLoading(contextLoading);
@@ -155,11 +152,7 @@ const ProductManagement = () => {
       if (purchaseTab === 'international' && showUsdPurchase) {
         currency = 'USD';
         const itemUsd = formData.purchasePriceUsd ?? 0;
-        const shipUsd = formData.shippingCostUsd ?? 0;
-        const dutyPct = formData.dutyGstPercent ?? 31;
-        const clearance = formData.clearanceCost ?? 0;
-        const totalUsd = itemUsd + shipUsd;
-        finalPurchasePrice = Math.round(totalUsd * (1 + dutyPct / 100) * usdExchangeRate * 100 + clearance * 100) / 100;
+        finalPurchasePrice = Math.round(itemUsd * usdExchangeRate * 100) / 100;
       } else {
         currency = 'INR';
       }
@@ -169,9 +162,6 @@ const ProductManagement = () => {
         purchasePrice: finalPurchasePrice,
         // Clear USD fields when local tab is used
         purchasePriceUsd: purchaseTab === 'international' ? formData.purchasePriceUsd : undefined,
-        shippingCostUsd: purchaseTab === 'international' ? formData.shippingCostUsd : undefined,
-        dutyGstPercent: purchaseTab === 'international' ? (formData.dutyGstPercent ?? 31) : undefined,
-        clearanceCost: purchaseTab === 'international' ? formData.clearanceCost : undefined,
         expiryDate: formData.expiryDate || undefined,
       };
       if (editingId) {
@@ -207,14 +197,12 @@ const ProductManagement = () => {
       expiryDate: p.expiryDate || '',
       imagePath: p.imagePath || '',
       netWeight: p.netWeight ?? undefined,
+      stackWeight: p.stackWeight ?? undefined,
       cbm: p.cbm ?? undefined,
       hsnCode: p.hsnCode || '',
       // USD fields
       purchasePriceCurrency: p.purchasePriceCurrency || 'INR',
       purchasePriceUsd: p.purchasePriceUsd ?? undefined,
-      shippingCostUsd: p.shippingCostUsd ?? undefined,
-      dutyGstPercent: p.dutyGstPercent ?? 31,
-      clearanceCost: p.clearanceCost ?? undefined,
     });
     setPurchaseTab((p.purchasePriceCurrency === 'USD') ? 'international' : 'local');
     setImagePreview(p.imagePath || '');
@@ -278,14 +266,15 @@ const ProductManagement = () => {
       { header: 'GST (%)', key: 'gst', width: 10 },
       { header: 'Quantity', key: 'qty', width: 10 },
       { header: 'Discount (%)', key: 'discount', width: 12 },
+      { header: 'Net Weight (kg)', key: 'netWeight', width: 15 },
+      { header: 'Stack Weight (kg)', key: 'stackWeight', width: 16 },
+      { header: 'CBM', key: 'cbm', width: 10 },
+      { header: 'Expiry Date', key: 'expiryDate', width: 14 },
       { header: 'Description', key: 'description', width: 30 },
     ];
     const usdColumns = [
       { header: 'Currency', key: 'currency', width: 10 },
       { header: 'Purchase Price (USD)', key: 'purchasePriceUsd', width: 20 },
-      { header: 'Shipping Cost (USD)', key: 'shippingCostUsd', width: 18 },
-      { header: 'Duty GST (%)', key: 'dutyGstPercent', width: 14 },
-      { header: 'Clearance Cost (₹)', key: 'clearanceCost', width: 18 },
     ];
     const columns = showUsdPurchase ? [...baseColumns, ...usdColumns] : baseColumns;
     const exportData = filtered.map((p) => {
@@ -302,14 +291,15 @@ const ProductManagement = () => {
         gst: p.taxPercentage,
         qty: p.quantity,
         discount: p.discountPercentage,
+        netWeight: p.netWeight ?? '',
+        stackWeight: p.stackWeight ?? '',
+        cbm: p.cbm ?? '',
+        expiryDate: p.expiryDate || '',
         description: p.description || '',
       };
       if (showUsdPurchase) {
         row.currency = p.purchasePriceCurrency || 'INR';
         row.purchasePriceUsd = p.purchasePriceUsd ?? '';
-        row.shippingCostUsd = p.shippingCostUsd ?? '';
-        row.dutyGstPercent = p.dutyGstPercent ?? '';
-        row.clearanceCost = p.clearanceCost ?? '';
       }
       return row;
     });
@@ -332,25 +322,27 @@ const ProductManagement = () => {
       { header: 'GST (%)', key: 'gst', width: 10 },
       { header: 'Quantity *', key: 'qty', width: 10 },
       { header: 'Discount (%)', key: 'discount', width: 12 },
+      { header: 'Net Weight (kg)', key: 'netWeight', width: 15 },
+      { header: 'Stack Weight (kg)', key: 'stackWeight', width: 16 },
+      { header: 'CBM', key: 'cbm', width: 10 },
+      { header: 'Expiry Date (dd-mm-yyyy)', key: 'expiryDate', width: 22 },
       { header: 'Description', key: 'description', width: 30 },
     ];
     const usdColumns = [
+      { header: 'Currency (INR/USD)', key: 'currency', width: 16 },
       { header: 'Purchase Price (USD)', key: 'purchasePriceUsd', width: 20 },
-      { header: 'Shipping Cost (USD)', key: 'shippingCostUsd', width: 18 },
-      { header: 'Duty GST (%)', key: 'dutyGstPercent', width: 14 },
-      { header: 'Clearance Cost (₹)', key: 'clearanceCost', width: 18 },
     ];
     const columns = showUsdPurchase ? [...baseColumns, ...usdColumns] : baseColumns;
     const sampleRow: any = {
       code: 'SKU-001', hsn: '95069100', name: 'Sample Product', brand: 'Brand',
       category: 'Category', unit: 'piece', mrp: 100, purchasePrice: 0,
-      taxType: 'GST', gst: 18, qty: 10, discount: 0, description: 'Product description',
+      taxType: 'GST', gst: 18, qty: 10, discount: 0,
+      netWeight: 1.5, stackWeight: 2.0, cbm: 0.02, expiryDate: '',
+      description: 'Product description',
     };
     if (showUsdPurchase) {
+      sampleRow.currency = 'USD';
       sampleRow.purchasePriceUsd = 10;
-      sampleRow.shippingCostUsd = 2;
-      sampleRow.dutyGstPercent = 31;
-      sampleRow.clearanceCost = 500;
     }
     exportToExcel([sampleRow], columns, 'product_import_template');
     toast.success('Template downloaded — fill it and import');
@@ -374,31 +366,35 @@ const ProductManagement = () => {
 
       // Map Excel columns → ProductRequest — column headers match the template
       const products: ProductRequest[] = rows.map((row) => {
+        // ── Currency / USD handling ──────────────────────────────────────
+        // User can set Currency = "USD" and fill Purchase Price (USD),
+        // OR just fill Purchase Price (₹) for local purchase.
+        const currencyCol = String(row['Currency (INR/USD)'] || row['Currency'] || 'INR').trim().toUpperCase();
         const purchasePriceUsdVal = row['Purchase Price (USD)'] !== '' && row['Purchase Price (USD)'] !== undefined
           ? Number(row['Purchase Price (USD)'])
           : undefined;
-        const shippingCostUsdVal = row['Shipping Cost (USD)'] !== '' && row['Shipping Cost (USD)'] !== undefined
-          ? Number(row['Shipping Cost (USD)'])
-          : undefined;
-        const dutyGstVal = row['Duty GST (%)'] !== '' && row['Duty GST (%)'] !== undefined
-          ? Number(row['Duty GST (%)'])
-          : 31;
-        const clearanceCostVal = row['Clearance Cost (₹)'] !== '' && row['Clearance Cost (₹)'] !== undefined
-          ? Number(row['Clearance Cost (₹)'])
-          : undefined;
 
-        // If USD purchase price is given, derive purchasePrice in INR automatically
         let purchasePriceInr = Number(row['Purchase Price (₹)'] ?? row['purchasePrice'] ?? 0);
         let currency = 'INR';
-        if (purchasePriceUsdVal && purchasePriceUsdVal > 0) {
+        // Treat as USD if: Currency column = USD OR Purchase Price (USD) is filled
+        if (currencyCol === 'USD' || (purchasePriceUsdVal && purchasePriceUsdVal > 0)) {
           currency = 'USD';
-          const itemUsd = purchasePriceUsdVal;
-          const shipUsd = shippingCostUsdVal ?? 0;
-          const duty = dutyGstVal / 100;
-          const clearance = clearanceCostVal ?? 0;
-          // Total cost per unit in INR
-          const totalUsd = itemUsd + shipUsd;
-          purchasePriceInr = Math.round((totalUsd * (1 + duty) * usdExchangeRate + clearance) * 100) / 100;
+          if (purchasePriceUsdVal && purchasePriceUsdVal > 0) {
+            purchasePriceInr = Math.round(purchasePriceUsdVal * usdExchangeRate * 100) / 100;
+          }
+        }
+
+        // ── Expiry Date: accept dd-mm-yyyy or yyyy-mm-dd ─────────────────
+        let expiryDate: string | undefined;
+        const rawExpiry = String(row['Expiry Date (dd-mm-yyyy)'] || row['Expiry Date'] || '').trim();
+        if (rawExpiry) {
+          if (/^\d{2}-\d{2}-\d{4}$/.test(rawExpiry)) {
+            // dd-mm-yyyy → yyyy-mm-dd for backend
+            const [d, m, y] = rawExpiry.split('-');
+            expiryDate = `${y}-${m}-${d}`;
+          } else {
+            expiryDate = rawExpiry; // pass as-is (yyyy-mm-dd or other formats)
+          }
         }
 
         return {
@@ -414,14 +410,15 @@ const ProductManagement = () => {
           taxPercentage:      Number(row['GST (%)'] ?? row['gst'] ?? 0),
           quantity:           Number(row['Quantity *'] ?? row['Quantity'] ?? row['qty'] ?? 0),
           discountPercentage: Number(row['Discount (%)'] ?? row['discount'] ?? 0),
+          netWeight:          row['Net Weight (kg)'] !== '' && row['Net Weight (kg)'] !== undefined ? Number(row['Net Weight (kg)']) : undefined,
+          stackWeight:        row['Stack Weight (kg)'] !== '' && row['Stack Weight (kg)'] !== undefined ? Number(row['Stack Weight (kg)']) : undefined,
+          cbm:                row['CBM'] !== '' && row['CBM'] !== undefined ? Number(row['CBM']) : undefined,
+          expiryDate,
           description:        String(row['Description'] || row['description'] || ''),
-          imagePath:          '',  // images not supported in bulk upload
+          imagePath:          '',
           // USD fields
           purchasePriceCurrency: currency,
           purchasePriceUsd:   purchasePriceUsdVal,
-          shippingCostUsd:    shippingCostUsdVal,
-          dutyGstPercent:     dutyGstVal,
-          clearanceCost:      clearanceCostVal,
         };
       });
 
@@ -684,12 +681,7 @@ const ProductManagement = () => {
               {/* Purchase Price tabs — International (USD) / Local (INR) */}
               {showUsdPurchase && (() => {
                 const itemUsd = formData.purchasePriceUsd ?? 0;
-                const shipUsd = formData.shippingCostUsd ?? 0;
-                const dutyPct = formData.dutyGstPercent ?? 31;
-                const clearance = formData.clearanceCost ?? 0;
-                const totalUsd = itemUsd + shipUsd;
-                const gstDutyUsd = totalUsd * (dutyPct / 100);
-                const totalCostInr = (totalUsd + gstDutyUsd) * usdExchangeRate + clearance;
+                const totalCostInr = itemUsd * usdExchangeRate;
                 const profit = (formData.price ?? 0) - totalCostInr;
                 return (
                   <div className="rounded-xl border border-border overflow-hidden">
@@ -740,62 +732,15 @@ const ProductManagement = () => {
                                   className="input-field pl-7" placeholder="0.00" />
                               </div>
                             </div>
-                            <div>
-                              <label className="block text-sm font-medium text-foreground mb-1.5">
-                                Shipping Cost (USD) <span className="text-muted-foreground font-normal">per unit</span>
-                              </label>
-                              <div className="relative">
-                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-mono">$</span>
-                                <input type="number" min={0} step="any"
-                                  value={formData.shippingCostUsd ?? ''}
-                                  onChange={(e) => setFormData(p => ({ ...p, shippingCostUsd: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
-                                  className="input-field pl-7" placeholder="0.00" />
-                              </div>
-                              <p className="text-xs text-muted-foreground mt-1">Based on CBM × rate</p>
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-foreground mb-1.5">
-                                GST + Duty (%)
-                              </label>
-                              <input type="number" min={0} max={100} step="0.5"
-                                value={formData.dutyGstPercent ?? 31}
-                                onChange={(e) => setFormData(p => ({ ...p, dutyGstPercent: e.target.value === '' ? 31 : parseFloat(e.target.value) }))}
-                                className="input-field" placeholder="31" />
-                              <p className="text-xs text-muted-foreground mt-1">Applied on item + shipping</p>
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-foreground mb-1.5">
-                                Clearance Cost (₹) <span className="text-muted-foreground font-normal">per unit</span>
-                              </label>
-                              <div className="relative">
-                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">₹</span>
-                                <input type="number" min={0} step="any"
-                                  value={formData.clearanceCost ?? ''}
-                                  onChange={(e) => setFormData(p => ({ ...p, clearanceCost: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
-                                  className="input-field pl-7" placeholder="0.00" />
-                              </div>
-                            </div>
                           </div>
 
                           {/* Cost breakdown card */}
-                          {(itemUsd > 0 || shipUsd > 0) && (
+                          {itemUsd > 0 && (
                             <div className="bg-muted/40 rounded-lg p-3 space-y-1.5 text-xs">
                               <p className="font-semibold text-foreground text-xs mb-2">📊 Total Purchase Cost (per unit @ ₹{usdExchangeRate}/$)</p>
                               <div className="flex justify-between text-muted-foreground">
-                                <span>① Item value</span>
+                                <span>Item value</span>
                                 <span className="font-mono">${itemUsd.toFixed(2)} = ₹{(itemUsd * usdExchangeRate).toFixed(2)}</span>
-                              </div>
-                              <div className="flex justify-between text-muted-foreground">
-                                <span>② Shipping</span>
-                                <span className="font-mono">${shipUsd.toFixed(2)} = ₹{(shipUsd * usdExchangeRate).toFixed(2)}</span>
-                              </div>
-                              <div className="flex justify-between text-muted-foreground">
-                                <span>③ GST + Duty ({dutyPct}%)</span>
-                                <span className="font-mono">${gstDutyUsd.toFixed(2)} = ₹{(gstDutyUsd * usdExchangeRate).toFixed(2)}</span>
-                              </div>
-                              <div className="flex justify-between text-muted-foreground">
-                                <span>④ Clearance</span>
-                                <span className="font-mono">₹{clearance.toFixed(2)}</span>
                               </div>
                               <div className="border-t border-border pt-1.5 flex justify-between font-semibold text-foreground">
                                 <span>Total Cost (INR)</span>
@@ -872,20 +817,48 @@ const ProductManagement = () => {
                 <div className="space-y-3 pt-1">
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 10V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l2-1.14"/><path d="m7.5 4.27 9 5.15"/><polyline points="3.29 7 12 12 20.71 7"/><line x1="12" x2="12" y1="22" y2="12"/></svg>
-                    Advanced Options (CBM)
+                    Advanced Options (CBM / Weight)
                   </p>
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-1.5">CBM (m³/unit)</label>
-                    <input
-                      type="number"
-                      value={formData.cbm ?? ''}
-                      onChange={(e) => setFormData((p) => ({ ...p, cbm: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
-                      placeholder="e.g. 0.6750"
-                      step="0.0001"
-                      min="0"
-                      className="input-field"
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">Volume per unit in cubic metres (L × W × H)</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-1.5">Net Weight (kg/unit)</label>
+                      <input
+                        type="number"
+                        value={formData.netWeight ?? ''}
+                        onChange={(e) => setFormData((p) => ({ ...p, netWeight: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
+                        placeholder="e.g. 45.0"
+                        step="0.001"
+                        min="0"
+                        className="input-field"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">Product weight without packaging</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-1.5">Stack Weight (kg/unit)</label>
+                      <input
+                        type="number"
+                        value={formData.stackWeight ?? ''}
+                        onChange={(e) => setFormData((p) => ({ ...p, stackWeight: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
+                        placeholder="e.g. 52.0"
+                        step="0.001"
+                        min="0"
+                        className="input-field"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">Gross weight including packaging</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-1.5">CBM (m³/unit)</label>
+                      <input
+                        type="number"
+                        value={formData.cbm ?? ''}
+                        onChange={(e) => setFormData((p) => ({ ...p, cbm: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
+                        placeholder="e.g. 0.6750"
+                        step="0.0001"
+                        min="0"
+                        className="input-field"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">Volume per unit (L × W × H)</p>
+                    </div>
                   </div>
                 </div>
               )}
